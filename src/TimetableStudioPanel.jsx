@@ -346,13 +346,57 @@ export function TimetableStudioPanel({
 
       <div className="relative z-10 flex h-full flex-col px-4 pt-4 pb-0 lg:px-6 lg:pt-6 lg:pb-0">
         <div className="mb-4 flex w-full flex-col gap-4">
-          <div className="min-w-0 w-full">
-            <p className="text-xs font-medium uppercase tracking-[0.2em] text-slate-400">Studio</p>
-            <h2 className="text-2xl font-semibold tracking-tight text-slate-900 lg:text-3xl">Teaching Studio</h2>
+          <div className="flex w-full items-start justify-between gap-3">
+            <div className="min-w-0 flex-1">
+              <p className="text-xs font-medium uppercase tracking-[0.2em] text-slate-400">Studio</p>
+              <h2 className="text-2xl font-semibold tracking-tight text-slate-900 lg:text-3xl">Teaching Studio</h2>
+              {!focusMode && (
+                <p className="mt-1 text-sm text-slate-500">
+                  Use the day strip to pick a day in week view, switch to month for a quick scan, and drag items to reorder.
+                </p>
+              )}
+            </div>
             {!focusMode && (
-              <p className="mt-1 text-sm text-slate-500">
-                Use the day strip to pick a day in week view, switch to month for a quick scan, and drag items to reorder.
-              </p>
+              <div className="flex shrink-0 items-center gap-1 rounded-[5px] border border-slate-300 bg-white/85 p-1.5 shadow-sm">
+                <button
+                  type="button"
+                  onClick={() => bumpFontScale(-fontScaleStep)}
+                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-slate-300 bg-white text-xs font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+                  disabled={fontScale <= fontScaleMin}
+                  title="Smaller text"
+                  aria-label="Decrease text size"
+                >
+                  A−
+                </button>
+                <button
+                  type="button"
+                  onClick={() => bumpFontScale(fontScaleStep)}
+                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-slate-300 bg-white text-xs font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+                  disabled={fontScale >= fontScaleMax}
+                  title="Larger text"
+                  aria-label="Increase text size"
+                >
+                  A+
+                </button>
+                <button
+                  ref={utilitiesBtnRef}
+                  type="button"
+                  data-utilities-trigger
+                  onClick={toggleUtilitiesMenu}
+                  className={cn(
+                    "flex h-9 w-9 shrink-0 items-center justify-center rounded-full border shadow-sm transition",
+                    utilitiesMenuOpen
+                      ? "border-slate-800 bg-slate-800 text-white"
+                      : "border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
+                  )}
+                  title="Utilities"
+                  aria-label="Utilities"
+                  aria-expanded={utilitiesMenuOpen}
+                  aria-haspopup="menu"
+                >
+                  <Wrench className="h-4 w-4" />
+                </button>
+              </div>
             )}
           </div>
 
@@ -736,46 +780,6 @@ export function TimetableStudioPanel({
                       />
                     ))}
                   </div>
-              <div className="flex h-[3.75rem] shrink-0 items-center gap-1 rounded-[5px] border border-slate-300 bg-white/80 px-1.5 shadow-sm">
-                <button
-                  type="button"
-                  onClick={() => bumpFontScale(-fontScaleStep)}
-                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-slate-300 bg-white text-xs font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
-                  disabled={fontScale <= fontScaleMin}
-                  title="Smaller text"
-                  aria-label="Decrease text size"
-                >
-                  A−
-                </button>
-                <button
-                  type="button"
-                  onClick={() => bumpFontScale(fontScaleStep)}
-                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-slate-300 bg-white text-xs font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
-                  disabled={fontScale >= fontScaleMax}
-                  title="Larger text"
-                  aria-label="Increase text size"
-                >
-                  A+
-                </button>
-                <button
-                  ref={utilitiesBtnRef}
-                  type="button"
-                  data-utilities-trigger
-                  onClick={toggleUtilitiesMenu}
-                  className={cn(
-                    "flex h-9 w-9 shrink-0 items-center justify-center rounded-full border shadow-sm transition",
-                    utilitiesMenuOpen
-                      ? "border-slate-800 bg-slate-800 text-white"
-                      : "border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
-                  )}
-                  title="Utilities"
-                  aria-label="Utilities"
-                  aria-expanded={utilitiesMenuOpen}
-                  aria-haspopup="menu"
-                >
-                  <Wrench className="h-4 w-4" />
-                </button>
-              </div>
             </div>
           )}
         </div>
