@@ -4,6 +4,13 @@ import { TimetableStudioPanel } from "./TimetableStudioPanel.jsx";
 import { UtilitiesMenusAndModals } from "./UtilitiesMenusAndModals.jsx";
 import { cn } from "./utils/cn.js";
 
+const DEFAULT_LESSON_NOTE_PLACEHOLDER = "Type or Click + to add lesson";
+const DEFAULT_LINE_NOTE_PLACEHOLDER = "Type or Click + to add note";
+
+function isMondayP1Lesson(dayName, period) {
+  return dayName === "Monday" && String(period ?? "").trim().toUpperCase() === "P1";
+}
+
 // Mocking Framer Motion behavior as provided in the snippet
 const AnimatePresence = ({ children }) => <>{children}</>;
 
@@ -737,6 +744,11 @@ function lessonSlotDisplayTitle(lesson) {
   let title = c && s ? `${c} ${s}`.replace(/\s+/g, " ").trim() : s || c || "";
   title = stripTrailingLessonTopicFromLabel(title, topic);
   return title || "—";
+}
+
+function lessonHeaderTitleForEdit(lesson) {
+  const t = lessonSlotDisplayTitle(lesson);
+  return t === "—" ? "" : t;
 }
 
 /** Learning plan fields already shown as structured blocks — avoid duplicating them in `note`. */
@@ -1689,6 +1701,13 @@ function findLessonInTimetable(timetable, lessonId) {
   return null;
 }
 
+function findLessonDayNameInTimetable(timetable, lessonId) {
+  for (const day of timetable) {
+    if (day.items.some((i) => i.id === lessonId && i.type === "lesson")) return day.day;
+  }
+  return null;
+}
+
 /** Position of a duty in its day’s `items` list (same index = same row across the week). */
 function findDutySlotInTimetable(timetable, dutyId) {
   for (const day of timetable) {
@@ -2109,6 +2128,7 @@ function LessonSlotRow({
   onOpenAddLessonForSlot,
   onOpenAccentPicker,
   onLineNoteCommit,
+  onSlotNoteCommit,
   onOpenCalendarKind,
   isFocusDay = false,
   isExpanded,
@@ -2131,11 +2151,8 @@ function LessonSlotRow({
     : [];
   const planSuccessCriteriaText = planSuccessCriteriaList.join(" · ");
   const planLessonTopic = (lp?.lessonTopic ?? "").trim();
-  const structuredPublic = hasStructuredLessonPlanPublicContent(lp);
-  const fallbackNote =
-    !structuredPublic && String(lesson.note ?? "").trim() ? String(lesson.note).trim() : "";
   const headerRowTitle = lessonSlotDisplayTitle(lesson);
-  const slotNoteTrim = String(lesson.note ?? "").trim();
+  const isDemoPlaceholderSlot = isMondayP1Lesson(dayName, lesson.period);
 
   const isLessonEditing = (field) =>
     editingField?.itemId === lesson.id && editingField?.field === field && editingField?.type === "lesson";
@@ -2143,7 +2160,7 @@ function LessonSlotRow({
   const titleHitClass =
     "min-w-0 truncate rounded-[2px] border border-transparent px-0.5 text-left font-medium outline-none transition hover:border-slate-200/80 hover:bg-slate-50/80";
   const hasPreviewBlock = Boolean(
-    planLessonTopic || planLearningIntention || planSuccessCriteriaText || fallbackNote
+    planLessonTopic || planLearningIntention || planSuccessCriteriaText
   );
   const planTail = lessonPlanHasExpandableTail(lp);
   const sequenceItems = Array.isArray(lp?.sequence)
@@ -2176,7 +2193,7 @@ function LessonSlotRow({
     const ro = typeof ResizeObserver !== "undefined" ? new ResizeObserver(measure) : null;
     ro?.observe(el);
     return () => ro?.disconnect();
-  }, [isExpanded, planLessonTopic, planLearningIntention, planSuccessCriteriaText, fallbackNote, isFocusDay]);
+  }, [isExpanded, planLessonTopic, planLearningIntention, planSuccessCriteriaText, isFocusDay]);
 
   const showExpandChevron = planTail || clampOverflow || (isExpanded && hasPreviewBlock);
   const showPlanDivider = hasPreviewBlock || (isExpanded && planTail);
@@ -2306,9 +2323,7 @@ function LessonSlotRow({
           : accentOpt.card
             ? accentOpt.card
             : "border-slate-200 bg-white/90",
-        lineEditorOpen && "min-h-[5.5rem]",
-        isFocusDay && "min-h-[5.25rem] px-2.5 py-2",
-        isFocusDay && lineEditorOpen && "min-h-[6rem]"
+        isFocusDay && "min-h-[5.25rem] px-2.5 py-2"
       )}
     >
       <div className="shrink-0 space-y-0.5">
@@ -2320,6 +2335,7 @@ function LessonSlotRow({
                   autoFocus
                   value={editingValue}
                   onChange={(e) => onEditChange(e.target.value)}
+                  onFocus={(e) => e.target.select()}
                   onBlur={onEditSave}
                   onClick={(e) => e.stopPropagation()}
                   onKeyDown={(e) => {
@@ -2354,6 +2370,7 @@ function LessonSlotRow({
                   autoFocus
                   value={editingValue}
                   onChange={(e) => onEditChange(e.target.value)}
+                  onFocus={(e) => e.target.select()}
                   onBlur={onEditSave}
                   onClick={(e) => e.stopPropagation()}
                   onKeyDown={(e) => {
@@ -2383,7 +2400,35 @@ function LessonSlotRow({
                 </button>
               )}
             </div>
-            {!lineEditorOpen ? (
+            {lineEditorOpen ? (
+              <input
+                ref={inputRef}
+                type="text"
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+                onFocus={(e) => e.target.select()}
+                onClick={(e) => e.stopPropagation()}
+                onBlur={closeEditor}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    closeEditor();
+                  }
+                  if (e.key === "Escape") {
+                    e.preventDefault();
+                    setDraft(lesson.lineNote ?? "");
+                    setLineEditorOpen(false);
+                  }
+                }}
+                maxLength={160}
+                placeholder={isDemoPlaceholderSlot ? DEFAULT_LINE_NOTE_PLACEHOLDER : ""}
+                aria-label="One-line note"
+                className={cn(
+                  "mt-0.5 w-full rounded border border-transparent bg-transparent px-0.5 py-0.5 text-left text-[9px] leading-tight text-slate-800 outline-none transition hover:bg-slate-50/50 placeholder:text-slate-400/60 focus:border-slate-300/40 focus:ring-0",
+                  isFocusDay && "text-[10px]"
+                )}
+              />
+            ) : (
               <button
                 type="button"
                 onClick={(e) => {
@@ -2394,45 +2439,28 @@ function LessonSlotRow({
                 aria-label={savedLine ? "Edit one-line note" : "Add one-line note"}
                 title={savedLine || undefined}
                 className={cn(
-                  "mt-0.5 line-clamp-2 w-full rounded px-0.5 text-left text-[9px] leading-tight text-slate-600 transition hover:bg-slate-50/80",
+                  "mt-0.5 line-clamp-2 w-full rounded bg-transparent px-0.5 text-left text-[9px] leading-tight transition hover:bg-slate-50/50",
+                  savedLine ? "text-slate-600" : isDemoPlaceholderSlot ? "text-slate-400/60" : "text-slate-600",
                   isFocusDay && "text-[10px]",
                   !savedLine && "min-h-[1.25rem] py-0.5"
                 )}
               >
-                {savedLine || "\u00a0"}
+                {savedLine || (isDemoPlaceholderSlot ? DEFAULT_LINE_NOTE_PLACEHOLDER : "\u00a0")}
               </button>
-            ) : null}
-            {structuredPublic && slotNoteTrim ? (
-              isLessonEditing("note") ? (
-                <textarea
-                  autoFocus
-                  rows={2}
-                  value={editingValue}
-                  onChange={(e) => onEditChange(e.target.value)}
-                  onBlur={onEditSave}
-                  onClick={(e) => e.stopPropagation()}
-                  onKeyDown={(e) => {
-                    if (e.key === "Escape") onEditCancel();
-                  }}
-                  className={cn(
-                    "mt-0.5 w-full resize-none rounded border border-slate-200 bg-white px-1 py-0.5 text-[9px] leading-snug text-slate-800 outline-none focus:border-slate-400",
-                    isFocusDay && "text-[10px]"
-                  )}
-                />
-              ) : (
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onStartEdit(lesson.id, "note", lesson.note ?? "", "lesson");
-                  }}
-                  className="mt-0.5 line-clamp-2 w-full rounded px-0.5 text-left text-[8px] leading-tight text-slate-500 transition hover:bg-slate-50/80"
-                  title={slotNoteTrim}
-                >
-                  {slotNoteTrim.length > 72 ? `${slotNoteTrim.slice(0, 72)}…` : slotNoteTrim}
-                </button>
-              )
-            ) : null}
+            )}
+            <textarea
+              value={lesson.note ?? ""}
+              onChange={(e) => onSlotNoteCommit(lesson.id, e.target.value)}
+              onFocus={(e) => e.target.select()}
+              onClick={(e) => e.stopPropagation()}
+              rows={2}
+              placeholder={isDemoPlaceholderSlot ? DEFAULT_LESSON_NOTE_PLACEHOLDER : ""}
+              aria-label="Lesson note on timetable"
+              className={cn(
+                "mt-0.5 w-full cursor-text resize-none rounded border border-transparent bg-transparent px-1 py-0.5 text-[9px] leading-snug text-slate-800 outline-none ring-0 transition hover:bg-slate-50/50 placeholder:text-slate-400/60 focus:border-slate-300/40 focus:ring-0",
+                isFocusDay && "text-[10px]"
+              )}
+            />
           </div>
           <div className="flex shrink-0 items-center gap-1 self-start">
             <button
@@ -2513,40 +2541,6 @@ function LessonSlotRow({
           </div>
         </div>
 
-        <div
-          className={cn(
-            "grid transition-[grid-template-rows] duration-200 ease-out motion-reduce:transition-none",
-            lineEditorOpen ? "grid-rows-[1fr]" : "grid-rows-[0fr]"
-          )}
-        >
-          <div className="min-h-0 overflow-hidden">
-            <div className="border-t border-slate-200/90 pt-1">
-              <input
-                ref={inputRef}
-                type="text"
-                value={draft}
-                onChange={(e) => setDraft(e.target.value)}
-                onClick={(e) => e.stopPropagation()}
-                onBlur={closeEditor}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") {
-                    e.preventDefault();
-                    closeEditor();
-                  }
-                  if (e.key === "Escape") {
-                    e.preventDefault();
-                    setDraft(lesson.lineNote ?? "");
-                    setLineEditorOpen(false);
-                  }
-                }}
-                maxLength={160}
-                placeholder="One-line note…"
-                className="w-full rounded border border-slate-200 bg-white px-1.5 py-0.5 text-[10px] text-slate-800 outline-none placeholder:text-slate-400 focus:border-slate-400"
-              />
-            </div>
-          </div>
-        </div>
-
         {(hasPreviewBlock || planTail) ? (
           <div
             className={cn(
@@ -2563,11 +2557,6 @@ function LessonSlotRow({
                       title={planLessonTopic}
                     >
                       {planLessonTopic}
-                    </p>
-                  ) : null}
-                  {fallbackNote ? (
-                    <p className={bodyText} title={fallbackNote}>
-                      {fallbackNote}
                     </p>
                   ) : null}
                   {planLearningIntention ? (
@@ -2589,11 +2578,6 @@ function LessonSlotRow({
                       title={planLessonTopic}
                     >
                       {planLessonTopic}
-                    </p>
-                  ) : null}
-                  {fallbackNote ? (
-                    <p className={bodyText} title={fallbackNote}>
-                      {fallbackNote}
                     </p>
                   ) : null}
                   {planLearningIntention ? (
@@ -2675,15 +2659,18 @@ function LessonSlotRow({
 
 function SlotLessonDetailOverlay({
   lesson,
+  dayName,
   onClose,
   onSave,
   onOpenAccentPicker,
   onTimerReset,
 }) {
+  const isDemoPlaceholderSlot = isMondayP1Lesson(dayName, lesson.period);
   const [lessonTopic, setLessonTopic] = useState("");
   const [time, setTime] = useState(lesson.time ?? "");
   const [room, setRoom] = useState(lesson.room ?? "");
   const [note, setNote] = useState(lesson.note ?? "");
+  const [headerLabelDraft, setHeaderLabelDraft] = useState(() => lessonHeaderTitleForEdit(lesson));
   const [urgent, setUrgent] = useState(Boolean(lesson.urgent));
   const [durationMins, setDurationMins] = useState(70);
   const [learningIntention, setLearningIntention] = useState("");
@@ -2714,17 +2701,12 @@ function SlotLessonDetailOverlay({
     setUrgent(Boolean(lesson.urgent));
   }, [lesson.id, lesson.time, lesson.room, lesson.note, lesson.urgent]);
 
+  useEffect(() => {
+    setHeaderLabelDraft(lessonHeaderTitleForEdit(lesson));
+  }, [lesson.id]);
+
   const accentOpt = lessonAccentOption(lesson);
   const defaultPhaseSet = useMemo(() => new Set(ADD_LESSON_SEQUENCE_DEFAULTS), []);
-
-  const structuredPlanPublic = hasStructuredLessonPlanPublicContent({
-    lessonTopic,
-    learningIntention,
-    successCriteria,
-    sequence,
-    resources,
-    homework,
-  });
 
   const field =
     "w-full rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-sm text-slate-900 outline-none focus:border-slate-400";
@@ -2764,11 +2746,18 @@ function SlotLessonDetailOverlay({
         aria-labelledby="slot-lesson-title"
       >
         <div className="flex items-start justify-between gap-2 border-b border-slate-100 px-3 py-2.5">
-          <div className="min-w-0">
+          <div className="min-w-0 flex-1">
             <p className="text-[9px] font-medium uppercase tracking-[0.16em] text-slate-400">Lesson</p>
-            <h3 id="slot-lesson-title" className="truncate text-sm font-semibold text-slate-900">
-              {lessonSlotDisplayTitle(lesson)}
-            </h3>
+            <input
+              id="slot-lesson-title"
+              type="text"
+              value={headerLabelDraft}
+              onChange={(e) => setHeaderLabelDraft(e.target.value)}
+              onFocus={(e) => e.target.select()}
+              placeholder={isDemoPlaceholderSlot ? DEFAULT_LESSON_NOTE_PLACEHOLDER : ""}
+              className="mt-0.5 w-full min-w-0 truncate border-0 border-b border-transparent bg-transparent p-0 text-sm font-semibold text-slate-900 outline-none transition placeholder:text-slate-400/55 focus:border-slate-200"
+              aria-label="Lesson title"
+            />
             {(room ?? "").trim() ? (
               <p className="mt-0.5 truncate text-[11px] font-medium text-slate-500">{room.trim()}</p>
             ) : null}
@@ -2837,17 +2826,20 @@ function SlotLessonDetailOverlay({
                 />
               </div>
             </div>
-            {structuredPlanPublic ? null : (
-              <div>
-                <label className={lab}>Reminder / note</label>
-                <textarea
-                  value={note}
-                  onChange={(e) => setNote(e.target.value)}
-                  rows={3}
-                  className={cn(field, "resize-y text-sm leading-snug")}
-                />
-              </div>
-            )}
+            <div>
+              <label className={lab}>Notes</label>
+              <textarea
+                value={note}
+                onChange={(e) => setNote(e.target.value)}
+                onFocus={(e) => e.target.select()}
+                rows={3}
+                placeholder={isDemoPlaceholderSlot ? DEFAULT_LINE_NOTE_PLACEHOLDER : ""}
+                className={cn(
+                  field,
+                  "resize-y border-transparent bg-transparent text-sm leading-snug shadow-none ring-0 placeholder:text-slate-400/60 focus:border-slate-300/40"
+                )}
+              />
+            </div>
 
             <div>
               <label className={lab}>Learning intention</label>
@@ -3025,10 +3017,13 @@ function SlotLessonDetailOverlay({
               type="button"
               onClick={() => {
                 const builtLp = buildLessonPlanForSave();
-                const nextNote = hasStructuredLessonPlanPublicContent(builtLp)
-                  ? ""
-                  : note.trim() || "—";
+                const hasStructured = hasStructuredLessonPlanPublicContent(builtLp);
+                const t = note.trim();
+                const nextNote = hasStructured ? t : t || "—";
+                const titleTrim = headerLabelDraft.trim() || "—";
                 onSave({
+                  subject: titleTrim,
+                  classGroup: "",
                   time: time.trim() || "—",
                   room: room.trim() || "Room",
                   note: nextNote,
@@ -4930,6 +4925,17 @@ export default function App() {
     );
   }
 
+  function commitLessonSlotNote(lessonId, text) {
+    applyTimetableUpdate((prev) =>
+      prev.map((day) => ({
+        ...day,
+        items: day.items.map((item) =>
+          item.id === lessonId && item.type === "lesson" ? { ...item, note: text } : item
+        ),
+      }))
+    );
+  }
+
   function applyLessonDraftToSlot(draft) {
     const payload = buildSlotLessonPlanPayload(draft);
     applyTimetableUpdate((prev) =>
@@ -6268,6 +6274,7 @@ export default function App() {
             openAddLessonForSlot={openAddLessonForSlot}
             openAccentPicker={openAccentPicker}
             commitLessonLineNote={commitLessonLineNote}
+            commitLessonSlotNote={commitLessonSlotNote}
             openCalendarFromLessonSlot={openCalendarFromLessonSlot}
             expandedLessons={expandedLessons}
             toggleLessonExpand={toggleLessonExpand}
@@ -6279,6 +6286,7 @@ export default function App() {
             cancelInlineEdit={cancelInlineEdit}
             slotOverlayLessonId={slotOverlayLessonId}
             findLessonInTimetable={findLessonInTimetable}
+            findLessonDayNameInTimetable={findLessonDayNameInTimetable}
             closeSlotLessonOverlay={closeSlotLessonOverlay}
             saveSlotOverlayLesson={saveSlotOverlayLesson}
             handleTimerReset={handleTimerReset}

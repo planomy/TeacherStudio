@@ -262,6 +262,7 @@ export function TimetableStudioPanel({
   openAddLessonForSlot,
   openAccentPicker,
   commitLessonLineNote,
+  commitLessonSlotNote,
   openCalendarFromLessonSlot,
   expandedLessons,
   toggleLessonExpand,
@@ -273,6 +274,7 @@ export function TimetableStudioPanel({
   cancelInlineEdit,
   slotOverlayLessonId,
   findLessonInTimetable,
+  findLessonDayNameInTimetable,
   closeSlotLessonOverlay,
   saveSlotOverlayLesson,
   handleTimerReset,
@@ -946,6 +948,7 @@ export function TimetableStudioPanel({
                             onOpenAddLessonForSlot={openAddLessonForSlot}
                             onOpenAccentPicker={openAccentPicker}
                             onLineNoteCommit={commitLessonLineNote}
+                            onSlotNoteCommit={commitLessonSlotNote}
                             onOpenCalendarKind={(kind, title) =>
                               openCalendarFromLessonSlot(day.day, kind, title)
                             }
@@ -983,10 +986,15 @@ export function TimetableStudioPanel({
         {typeof document !== "undefined" && slotOverlayLessonId
           ? (() => {
               const overlayLesson = findLessonInTimetable(timetable, slotOverlayLessonId);
+              const overlayDayName = overlayLesson
+                ? findLessonDayNameInTimetable(timetable, slotOverlayLessonId)
+                : null;
               return overlayLesson
                 ? createPortal(
                     <SlotLessonDetailOverlay
+                      key={slotOverlayLessonId}
                       lesson={overlayLesson}
+                      dayName={overlayDayName}
                       onClose={closeSlotLessonOverlay}
                       onSave={(patch) => saveSlotOverlayLesson(overlayLesson.id, patch)}
                       onOpenAccentPicker={openAccentPicker}
