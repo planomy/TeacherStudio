@@ -15,6 +15,9 @@ export function UtilitiesMenusAndModals({
   openNewWeekSubmenuFromUtilities,
   onOpenUnitPlannerFromUtilities,
   onOpenViewUnitsFromUtilities,
+  onOpenWeekDatesFromUtilities,
+  onOpenStudentNotesFromUtilities,
+  onOpenLessonExportFromUtilities,
   handleUtilityExportFile,
   openUtilityImportModal,
   openArchiveModalFromUtilities,
@@ -119,6 +122,30 @@ export function UtilitiesMenusAndModals({
             onClick={onOpenViewUnitsFromUtilities}
           >
             View Units
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            className="flex w-full px-3 py-2 text-left text-[12.5px] font-medium text-slate-800 transition hover:bg-slate-50"
+            onClick={onOpenWeekDatesFromUtilities}
+          >
+            Lock Week Dates
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            className="flex w-full px-3 py-2 text-left text-[12.5px] font-medium text-slate-800 transition hover:bg-slate-50"
+            onClick={onOpenStudentNotesFromUtilities}
+          >
+            See Student Notes
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            className="flex w-full px-3 py-2 text-left text-[12.5px] font-medium text-slate-800 transition hover:bg-slate-50"
+            onClick={onOpenLessonExportFromUtilities}
+          >
+            Share / Export Lessons
           </button>
           <button
             type="button"

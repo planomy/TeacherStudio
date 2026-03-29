@@ -239,6 +239,7 @@ export function TimetableStudioPanel({
   goToNextMonth,
   filteredUpcomingItems,
   upcomingMonthListTextClass,
+  selectedWeekDateLabelsByDay,
   monthViewDayNotes,
   onMonthViewDayNoteCommit,
   normalizedSearch,
@@ -261,8 +262,11 @@ export function TimetableStudioPanel({
   openSlotLessonOverlay,
   openAddLessonForSlot,
   openAccentPicker,
+  openStudentNoteEntryForLesson,
   commitLessonLineNote,
   commitLessonSlotNote,
+  onLessonHeaderCommitAttempt,
+  subjectApplyPrompt,
   openCalendarFromLessonSlot,
   expandedLessons,
   toggleLessonExpand,
@@ -278,6 +282,8 @@ export function TimetableStudioPanel({
   closeSlotLessonOverlay,
   saveSlotOverlayLesson,
   handleTimerReset,
+  insertCellsAtAnchor,
+  removeCellsAtAnchor,
 }) {
   const viewTimetable = normalizedSearch ? filteredTimetable : timetable;
 
@@ -887,7 +893,7 @@ export function TimetableStudioPanel({
                   <div className="mb-2 flex items-center justify-between gap-2">
                     <div>
                       <p className="mb-0.5 text-[10px] font-medium uppercase tracking-[0.16em] text-slate-400">
-                        {new Date(2026, 2, dayIndex + 23).getDate()} Mar
+                        {selectedWeekDateLabelsByDay?.[day.day] ?? ""}
                       </p>
                       <h3 className="text-sm font-semibold text-slate-900">{day.day}</h3>
                       {!focusMode && (
@@ -925,54 +931,66 @@ export function TimetableStudioPanel({
                     focusMode && "space-y-2 pr-0"
                   )}>
                     {day.items.map((item, itemIndex) => (
-                      <div 
+                      <div
                         key={item.id}
-                        draggable={isDraggableEnabled}
-                        onDragStart={(e) => {
-                          if (!isDraggableEnabled) return;
-                          if (e.target.closest?.("input, textarea, button, select, a")) {
-                            e.preventDefault();
-                            return;
-                          }
-                          handleDragStart(e, dayIndex, itemIndex);
-                        }}
+                        className="rounded-md"
                         onDragOver={isDraggableEnabled ? handleDragOver : undefined}
                         onDrop={(e) => isDraggableEnabled && handleDrop(e, dayIndex, itemIndex)}
-                        className={cn(isDraggableEnabled && "cursor-grab active:cursor-grabbing")}
                       >
-                        {item.type === "lesson" ? (
-                          <LessonSlotRow
-                            lesson={item}
-                            dayName={day.day}
-                            onOpenSlotDetail={openSlotLessonOverlay}
-                            onOpenAddLessonForSlot={openAddLessonForSlot}
-                            onOpenAccentPicker={openAccentPicker}
-                            onLineNoteCommit={commitLessonLineNote}
-                            onSlotNoteCommit={commitLessonSlotNote}
-                            onOpenCalendarKind={(kind, title) =>
-                              openCalendarFromLessonSlot(day.day, kind, title)
+                        <div
+                          draggable={isDraggableEnabled}
+                          onDragStart={(e) => {
+                            if (!isDraggableEnabled) return;
+                            if (e.target.closest?.("input, textarea, button, select, a")) {
+                              e.preventDefault();
+                              return;
                             }
-                            isFocusDay={focusMode}
-                            isExpanded={expandedLessons.includes(item.id)}
-                            onToggleExpand={() => toggleLessonExpand(item.id)}
-                            editingField={editingField}
-                            editingValue={editingValue}
-                            onStartEdit={startInlineEdit}
-                            onEditChange={setEditingValue}
-                            onEditSave={saveInlineEdit}
-                            onEditCancel={cancelInlineEdit}
-                          />
-                        ) : (
-                          <DutyRow 
-                            duty={item} 
-                            editingField={editingField}
-                            editingValue={editingValue}
-                            onStartEdit={startInlineEdit}
-                            onEditChange={setEditingValue}
-                            onEditSave={saveInlineEdit}
-                            onEditCancel={cancelInlineEdit}
-                          />
-                        )}
+                            handleDragStart(e, dayIndex, itemIndex);
+                          }}
+                          className={cn(isDraggableEnabled && "cursor-grab active:cursor-grabbing")}
+                        >
+                          {item.type === "lesson" ? (
+                            <LessonSlotRow
+                              lesson={item}
+                              dayName={day.day}
+                              onOpenSlotDetail={openSlotLessonOverlay}
+                              onOpenAddLessonForSlot={openAddLessonForSlot}
+                              onOpenAccentPicker={openAccentPicker}
+                              onOpenStudentNoteEntryForLesson={openStudentNoteEntryForLesson}
+                              onLineNoteCommit={commitLessonLineNote}
+                              onSlotNoteCommit={commitLessonSlotNote}
+                              onLessonHeaderCommitAttempt={onLessonHeaderCommitAttempt}
+                              subjectApplyPrompt={subjectApplyPrompt}
+                              onOpenCalendarKind={(kind, title) =>
+                                openCalendarFromLessonSlot(day.day, kind, title)
+                              }
+                              insertCellsAtAnchor={insertCellsAtAnchor}
+                              removeCellsAtAnchor={removeCellsAtAnchor}
+                              isFocusDay={focusMode}
+                              isExpanded={expandedLessons.includes(item.id)}
+                              onToggleExpand={() => toggleLessonExpand(item.id)}
+                              editingField={editingField}
+                              editingValue={editingValue}
+                              onStartEdit={startInlineEdit}
+                              onEditChange={setEditingValue}
+                              onEditSave={saveInlineEdit}
+                              onEditCancel={cancelInlineEdit}
+                            />
+                          ) : (
+                            <DutyRow
+                              duty={item}
+                              dayName={day.day}
+                              insertCellsAtAnchor={insertCellsAtAnchor}
+                              removeCellsAtAnchor={removeCellsAtAnchor}
+                              editingField={editingField}
+                              editingValue={editingValue}
+                              onStartEdit={startInlineEdit}
+                              onEditChange={setEditingValue}
+                              onEditSave={saveInlineEdit}
+                              onEditCancel={cancelInlineEdit}
+                            />
+                          )}
+                        </div>
                       </div>
                     ))}
                   </div>

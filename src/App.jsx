@@ -3,9 +3,17 @@ import { createPortal } from "react-dom";
 import { TimetableStudioPanel } from "./TimetableStudioPanel.jsx";
 import { UtilitiesMenusAndModals } from "./UtilitiesMenusAndModals.jsx";
 import { cn } from "./utils/cn.js";
+import { LinkifiedText, textContainsHttpUrl } from "./utils/LinkifiedText.jsx";
 
-const DEFAULT_LESSON_NOTE_PLACEHOLDER = "Type or Click + to add lesson";
+/** Timetable card: class/subject line (Mon P1 demo slot). */
+const DEFAULT_LESSON_TITLE_PLACEHOLDER = "Type or Click + to add lesson";
+/** Shown in every lesson cell class/subject field when empty. */
+const DEFAULT_CLASS_SUBJECT_PLACEHOLDER = "Add class";
+/** Shown when room is empty (timetable cell + room editor). */
+const DEFAULT_ROOM_PLACEHOLDER = "Room";
 const DEFAULT_LINE_NOTE_PLACEHOLDER = "Type or Click + to add note";
+/** Timetable card: main note textarea under the line note. */
+const DEFAULT_SLOT_NOTE_PLACEHOLDER = "Type or Click + to add note";
 
 function isMondayP1Lesson(dayName, period) {
   return dayName === "Monday" && String(period ?? "").trim().toUpperCase() === "P1";
@@ -179,6 +187,12 @@ const X = ({ className }) => (
   </IconBase>
 );
 
+const Check = ({ className }) => (
+  <IconBase className={className}>
+    <path d="M20 6 9 17l-5-5" />
+  </IconBase>
+);
+
 const Wrench = ({ className }) => (
   <IconBase className={className}>
     <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.71 6.7a2.83 2.83 0 1 1-4-4l6.71-6.71a6 6 0 0 1 7.94-7.94l-3.76 3.76z" />
@@ -233,7 +247,39 @@ const sidebarItems = [
   { icon: CalendarDays, label: "Calendar" },
 ];
 
+const STUDENT_NOTE_QUICK_CHOICES = [
+  "Behaviour issue",
+  "Distracting others",
+  "Homework incomplete",
+  "Uniform issue",
+  "Off task",
+];
+
 const TERM_WEEKS = Array.from({ length: 11 }, (_, i) => `Week ${i + 1}`);
+
+function weekIndexFromLabel(weekLabel) {
+  const n = Number(String(weekLabel ?? "").match(/\d+/)?.[0]);
+  if (!Number.isFinite(n)) return 0;
+  return Math.max(0, Math.min(TERM_WEEKS.length - 1, Math.floor(n) - 1));
+}
+
+function weekLabelForDate(week1StartIso) {
+  const week1 = parseIsoToLocalDate(week1StartIso) ?? mondayOfLocalWeek(new Date());
+  const today = startOfLocalDay(new Date());
+  const delta = Math.floor((today.getTime() - week1.getTime()) / 86400000);
+  const weekNumber = Math.max(1, Math.min(TERM_WEEKS.length, Math.floor(delta / 7) + 1));
+  return `Week ${weekNumber}`;
+}
+
+function weekDayDateFor(week1StartIso, weekLabel, dayName) {
+  const week1 = parseIsoToLocalDate(week1StartIso) ?? mondayOfLocalWeek(new Date());
+  const weekOffsetDays = weekIndexFromLabel(weekLabel) * 7;
+  const dayOffset = TT_WEEKDAY_ORDER.indexOf(dayName);
+  if (dayOffset < 0) return null;
+  const out = new Date(week1);
+  out.setDate(out.getDate() + weekOffsetDays + dayOffset);
+  return out;
+}
 
 function cloneTimetable(t) {
   return JSON.parse(JSON.stringify(t));
@@ -650,11 +696,7 @@ function getCelebrationOccurrence(isoDate, yearly) {
 }
 
 function todayIsoDate() {
-  const t = new Date();
-  const y = t.getFullYear();
-  const m = String(t.getMonth() + 1).padStart(2, "0");
-  const d = String(t.getDate()).padStart(2, "0");
-  return `${y}-${m}-${d}`;
+  return isoDateFromLocalDate(new Date());
 }
 
 const CELEBRATION_LIST_TONE = {
@@ -816,12 +858,14 @@ function lessonPlanEditorsFromLesson(lesson) {
 function buildSlotLessonPlanPayload(draft) {
   const n = Number(draft.durationMins);
   const durationMins = Number.isFinite(n) && n > 0 ? Math.min(320, Math.round(n)) : 70;
+  const sc = Array.isArray(draft.successCriteria) ? draft.successCriteria : [""];
+  const seq = Array.isArray(draft.sequence) ? draft.sequence : [];
   const lessonPlan = {
     durationMins,
     lessonTopic: String(draft.lessonTopic ?? "").trim(),
     learningIntention: draft.learningIntention.trim(),
-    successCriteria: draft.successCriteria.map((s) => String(s).trim()).filter(Boolean),
-    sequence: draft.sequence
+    successCriteria: sc.map((s) => String(s).trim()).filter(Boolean),
+    sequence: seq
       .map((s) => ({
         phase: String(s.phase || "").trim() || "Step",
         text: String(s.text || "").trim(),
@@ -900,12 +944,12 @@ function UnitPlannerPanel({ open, onClose, classOptions, onSave }) {
   return (
     <>
       <div
-        className="absolute inset-0 z-[45] bg-slate-900/20"
+        className="fixed inset-0 z-[70] bg-slate-900/20"
         onClick={onClose}
         aria-hidden
       />
       <div
-        className="absolute left-1/2 top-6 z-[46] flex max-h-[min(88vh,32rem)] w-[min(100%-1.25rem,22rem)] -translate-x-1/2 flex-col overflow-hidden rounded-2xl border border-slate-200/90 bg-white shadow-[0_20px_50px_-12px_rgba(15,23,42,0.25)] sm:left-auto sm:right-5 sm:translate-x-0"
+        className="fixed left-1/2 top-6 z-[71] flex max-h-[min(88vh,32rem)] w-[min(100%-1.25rem,22rem)] -translate-x-1/2 flex-col overflow-hidden rounded-2xl border border-slate-200/90 bg-white shadow-[0_20px_50px_-12px_rgba(15,23,42,0.25)] sm:left-auto sm:right-5 sm:translate-x-0"
         role="dialog"
         aria-labelledby="unit-planner-title"
         onClick={(e) => e.stopPropagation()}
@@ -917,7 +961,10 @@ function UnitPlannerPanel({ open, onClose, classOptions, onSave }) {
               <h3 id="unit-planner-title" className="text-base font-semibold tracking-tight text-slate-900">
                 Unit planner
               </h3>
-              <p className="mt-0.5 text-[11px] text-slate-500">Save a unit and lesson focuses for a class.</p>
+              <p className="mt-0.5 text-[11px] text-slate-500">
+                Save a unit and lesson focuses for a class. Paste <span className="font-mono text-[10px]">https://</span>{" "}
+                links — they open as active links in View units.
+              </p>
             </div>
             <button
               type="button"
@@ -973,7 +1020,10 @@ function UnitPlannerPanel({ open, onClose, classOptions, onSave }) {
                 <span className={unitPlannerLabInline}>Lesson focus</span>
                 <button
                   type="button"
-                  onClick={addFocusRow}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    addFocusRow();
+                  }}
                   className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 shadow-sm transition hover:bg-slate-50"
                   aria-label="Add lesson focus"
                   title="Add lesson focus"
@@ -1055,12 +1105,12 @@ function ViewUnitsPanel({ open, onClose, unitStore, classOptions }) {
   return (
     <>
       <div
-        className="absolute inset-0 z-[45] bg-slate-900/20"
+        className="fixed inset-0 z-[70] bg-slate-900/20"
         onClick={onClose}
         aria-hidden
       />
       <div
-        className="absolute left-1/2 top-6 z-[46] flex max-h-[min(88vh,34rem)] w-[min(100%-1.25rem,22rem)] -translate-x-1/2 flex-col overflow-hidden rounded-2xl border border-slate-200/90 bg-white shadow-[0_20px_50px_-12px_rgba(15,23,42,0.25)] sm:left-auto sm:right-5 sm:translate-x-0"
+        className="fixed left-1/2 top-6 z-[71] flex max-h-[min(88vh,34rem)] w-[min(100%-1.25rem,22rem)] -translate-x-1/2 flex-col overflow-hidden rounded-2xl border border-slate-200/90 bg-white shadow-[0_20px_50px_-12px_rgba(15,23,42,0.25)] sm:left-auto sm:right-5 sm:translate-x-0"
         role="dialog"
         aria-labelledby="view-units-title"
         onClick={(e) => e.stopPropagation()}
@@ -1139,7 +1189,9 @@ function ViewUnitsPanel({ open, onClose, unitStore, classOptions }) {
             {selected ? (
               <div className="rounded-xl border border-slate-200/90 bg-slate-50/90 px-3 py-2.5">
                 <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Lesson focuses</p>
-                <p className="mt-1 text-sm font-semibold text-slate-900">{selected.unitTitle}</p>
+                <p className="mt-1 text-sm font-semibold text-slate-900">
+                  <LinkifiedText text={selected.unitTitle} className="text-sm font-semibold text-slate-900" />
+                </p>
                 <ul className="mt-2 space-y-1.5 border-t border-slate-200/80 pt-2">
                   {selected.lessonFocuses.map((line, i) => (
                     <li
@@ -1147,7 +1199,9 @@ function ViewUnitsPanel({ open, onClose, unitStore, classOptions }) {
                       className="flex gap-2 text-[11px] leading-snug text-slate-700"
                     >
                       <span className="shrink-0 font-semibold tabular-nums text-slate-400">{i + 1}.</span>
-                      <span>{line}</span>
+                      <span>
+                        <LinkifiedText text={line} className="text-[11px] leading-snug text-slate-700" />
+                      </span>
                     </li>
                   ))}
                 </ul>
@@ -1191,12 +1245,12 @@ function AddLessonPanel({ draft, setDraft, timetable, onClose, onSubmit }) {
   return (
     <>
       <div
-        className="absolute inset-0 z-[45] bg-slate-900/20"
+        className="fixed inset-0 z-[70] bg-slate-900/20"
         onClick={onClose}
         aria-hidden
       />
       <div
-        className="absolute left-1/2 top-6 z-[46] flex max-h-[min(92vh,42rem)] w-[min(100%-1.25rem,26rem)] -translate-x-1/2 flex-col overflow-hidden rounded-2xl border border-slate-200/90 bg-white shadow-[0_20px_50px_-12px_rgba(15,23,42,0.25)] sm:left-auto sm:right-5 sm:translate-x-0 md:w-[min(100%-2rem,36rem)]"
+        className="fixed left-1/2 top-6 z-[71] flex max-h-[min(92vh,42rem)] w-[min(100%-1.25rem,26rem)] -translate-x-1/2 flex-col overflow-hidden rounded-2xl border border-slate-200/90 bg-white shadow-[0_20px_50px_-12px_rgba(15,23,42,0.25)] sm:left-auto sm:right-5 sm:translate-x-0 md:w-[min(100%-2rem,36rem)]"
         role="dialog"
         aria-labelledby="add-lesson-title"
         onClick={(e) => e.stopPropagation()}
@@ -1332,14 +1386,15 @@ function AddLessonPanel({ draft, setDraft, timetable, onClose, onSubmit }) {
             <div>
               <label className={lab}>Success criteria</label>
               <div className="space-y-1.5">
-                {draft.successCriteria.map((line, i) => (
+                {(Array.isArray(draft.successCriteria) ? draft.successCriteria : [""]).map((line, i) => (
                   <div key={i} className="flex items-start gap-1.5">
                     <input
                       type="text"
                       value={line}
                       onChange={(e) =>
                         setDraft((d) => {
-                          const next = [...d.successCriteria];
+                          const base = Array.isArray(d.successCriteria) ? d.successCriteria : [""];
+                          const next = [...base];
                           next[i] = e.target.value;
                           return { ...d, successCriteria: next };
                         })
@@ -1347,14 +1402,17 @@ function AddLessonPanel({ draft, setDraft, timetable, onClose, onSubmit }) {
                       className={inp}
                       placeholder={`Criterion ${i + 1}`}
                     />
-                    {draft.successCriteria.length > 1 ? (
+                    {(Array.isArray(draft.successCriteria) ? draft.successCriteria : [""]).length > 1 ? (
                       <button
                         type="button"
                         onClick={() =>
-                          setDraft((d) => ({
-                            ...d,
-                            successCriteria: d.successCriteria.filter((_, j) => j !== i),
-                          }))
+                          setDraft((d) => {
+                            const base = Array.isArray(d.successCriteria) ? d.successCriteria : [""];
+                            return {
+                              ...d,
+                              successCriteria: base.filter((_, j) => j !== i),
+                            };
+                          })
                         }
                         className="mt-1 shrink-0 rounded-md px-1.5 py-0.5 text-sm text-slate-400 hover:bg-red-50 hover:text-red-600"
                         aria-label="Remove criterion"
@@ -1367,7 +1425,13 @@ function AddLessonPanel({ draft, setDraft, timetable, onClose, onSubmit }) {
               </div>
               <button
                 type="button"
-                onClick={() => setDraft((d) => ({ ...d, successCriteria: [...d.successCriteria, ""] }))}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setDraft((d) => ({
+                    ...d,
+                    successCriteria: [...(Array.isArray(d.successCriteria) ? d.successCriteria : [""]), ""],
+                  }));
+                }}
                 className="mt-1.5 text-[11px] font-medium text-slate-600 hover:text-slate-900"
               >
                 + Add criterion
@@ -1379,7 +1443,10 @@ function AddLessonPanel({ draft, setDraft, timetable, onClose, onSubmit }) {
               <div className="space-y-2">
                 {(() => {
                   const defaultPhaseSet = new Set(ADD_LESSON_SEQUENCE_DEFAULTS);
-                  return draft.sequence.map((row, i) => {
+                  const seqRows = Array.isArray(draft.sequence)
+                    ? draft.sequence
+                    : ADD_LESSON_SEQUENCE_DEFAULTS.map((phase) => ({ phase, text: "" }));
+                  return seqRows.map((row, i) => {
                   const showPhaseInput = !defaultPhaseSet.has(row.phase);
                   return (
                   <div key={i} className="flex gap-2">
@@ -1390,7 +1457,8 @@ function AddLessonPanel({ draft, setDraft, timetable, onClose, onSubmit }) {
                           value={row.phase}
                           onChange={(e) =>
                             setDraft((d) => {
-                              const next = d.sequence.map((s, j) =>
+                              const base = Array.isArray(d.sequence) ? d.sequence : seqRows;
+                              const next = base.map((s, j) =>
                                 j === i ? { ...s, phase: e.target.value } : s
                               );
                               return { ...d, sequence: next };
@@ -1408,7 +1476,8 @@ function AddLessonPanel({ draft, setDraft, timetable, onClose, onSubmit }) {
                       value={row.text}
                       onChange={(e) =>
                         setDraft((d) => {
-                          const next = d.sequence.map((s, j) =>
+                          const base = Array.isArray(d.sequence) ? d.sequence : seqRows;
+                          const next = base.map((s, j) =>
                             j === i ? { ...s, text: e.target.value } : s
                           );
                           return { ...d, sequence: next };
@@ -1417,14 +1486,17 @@ function AddLessonPanel({ draft, setDraft, timetable, onClose, onSubmit }) {
                       className={inp}
                       placeholder="What happens in this part?"
                     />
-                    {draft.sequence.length > 1 ? (
+                    {seqRows.length > 1 ? (
                       <button
                         type="button"
                         onClick={() =>
-                          setDraft((d) => ({
-                            ...d,
-                            sequence: d.sequence.filter((_, j) => j !== i),
-                          }))
+                          setDraft((d) => {
+                            const base = Array.isArray(d.sequence) ? d.sequence : seqRows;
+                            return {
+                              ...d,
+                              sequence: base.filter((_, j) => j !== i),
+                            };
+                          })
                         }
                         className="mt-1 shrink-0 self-start rounded-md px-1.5 py-0.5 text-sm text-slate-400 hover:bg-red-50 hover:text-red-600"
                         aria-label="Remove step"
@@ -1439,12 +1511,13 @@ function AddLessonPanel({ draft, setDraft, timetable, onClose, onSubmit }) {
               </div>
               <button
                 type="button"
-                onClick={() =>
+                onClick={(e) => {
+                  e.stopPropagation();
                   setDraft((d) => ({
                     ...d,
-                    sequence: [...d.sequence, { phase: "", text: "" }],
-                  }))
-                }
+                    sequence: [...(Array.isArray(d.sequence) ? d.sequence : []), { phase: "", text: "" }],
+                  }));
+                }}
                 className="mt-1.5 text-[11px] font-medium text-slate-600 hover:text-slate-900"
               >
                 + Add step
@@ -1693,6 +1766,209 @@ function countLessonsMatchingSubject(timetable, subject) {
   return n;
 }
 
+function collectMatchingLessonIds(timetable, subject) {
+  const key = lessonSubjectKey(subject);
+  const ids = [];
+  for (const day of timetable) {
+    for (const item of day.items) {
+      if (item.type === "lesson" && lessonSubjectKey(item.subject) === key) ids.push(item.id);
+    }
+  }
+  return ids;
+}
+
+function collectAllLessonIds(timetable) {
+  const ids = [];
+  for (const day of timetable) {
+    for (const item of day.items) {
+      if (item.type === "lesson") ids.push(item.id);
+    }
+  }
+  return ids;
+}
+
+function BulkLessonPickGrid({ timetable, subjectForMatch, selectedIds, onToggle }) {
+  const matchKey = lessonSubjectKey(subjectForMatch);
+  const { dayMap, maxRows } = useMemo(() => {
+    const m = new Map();
+    for (const d of TT_WEEKDAY_ORDER) {
+      const row = timetable.find((x) => x.day === d);
+      m.set(d, (row?.items ?? []).filter((i) => i.type === "lesson"));
+    }
+    let max = 0;
+    for (const d of TT_WEEKDAY_ORDER) {
+      max = Math.max(max, (m.get(d) ?? []).length);
+    }
+    return { dayMap: m, maxRows: max };
+  }, [timetable]);
+
+  if (maxRows === 0) {
+    return <p className="mt-1 text-[10px] text-slate-500">No lesson rows.</p>;
+  }
+
+  return (
+    <div className="mt-1">
+      <div className="mx-auto flex w-max max-w-full justify-center gap-1.5">
+        {TT_WEEKDAY_ORDER.map((d) => {
+          const lessons = dayMap.get(d) ?? [];
+          return (
+            <div key={d} className="flex w-11 flex-col items-center gap-1.5">
+              <div className="text-center text-[8px] font-semibold text-slate-500">{d.slice(0, 3)}</div>
+              <div className="flex flex-col items-center gap-1.5">
+                {Array.from({ length: maxRows }, (_, rowIdx) => {
+                  const item = lessons[rowIdx];
+                  if (!item) {
+                    return (
+                      <div
+                        key={`${d}-r${rowIdx}`}
+                        className="flex size-11 items-center justify-center rounded-md bg-slate-50 text-[9px] text-slate-300"
+                        aria-hidden
+                      >
+                        —
+                      </div>
+                    );
+                  }
+                  const selected = selectedIds.has(item.id);
+                  const sameClass = lessonSubjectKey(item.subject) === matchKey;
+                  const label = String(item.period ?? "").trim() || `R${rowIdx + 1}`;
+                  return (
+                    <button
+                      key={item.id}
+                      type="button"
+                      aria-pressed={selected}
+                      onClick={() => onToggle(item.id)}
+                      className={cn(
+                        "flex size-11 items-center justify-center rounded-md border text-[12px] font-semibold tabular-nums leading-none transition",
+                        selected
+                          ? "border-transparent bg-slate-200 text-slate-600"
+                          : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50",
+                        !selected && sameClass && "text-slate-500"
+                      )}
+                      title={`${lessonSlotDisplayTitle(item)} · ${(item.room ?? "").trim() || DEFAULT_ROOM_PLACEHOLDER}`}
+                    >
+                      {label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function RoomApplyDialogBody({ prompt, timetable, onClose, onApplySelected, onApplyThisSlotOnly }) {
+  const matchingIds = useMemo(() => collectMatchingLessonIds(timetable, prompt.subject), [timetable, prompt.subject]);
+  const classLabel = (prompt.subject ?? "").trim() || "this class";
+
+  return (
+    <div className="relative w-[min(92vw,16.5rem)] rounded-lg border border-slate-200 bg-white px-2.5 py-2 shadow-[0_10px_26px_-10px_rgba(15,23,42,0.32)]">
+      <button
+        type="button"
+        onClick={onClose}
+        className="absolute right-1.5 top-1.5 rounded-md p-1 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
+        aria-label="Close"
+      >
+        <X className="h-4 w-4" />
+      </button>
+      <p className="pr-7 text-[12px] font-semibold text-slate-900">{prompt.newRoom.trim() || "—"}</p>
+      <div className="mt-2 space-y-1.5">
+        <button
+          type="button"
+          onClick={() => onApplySelected(matchingIds)}
+          className="w-full rounded-md border border-slate-200 bg-white px-2 py-2.5 text-left text-[12px] font-medium text-slate-700 transition hover:bg-slate-50 active:scale-[0.99]"
+        >
+          Add to all “{classLabel}” lessons
+        </button>
+        <button
+          type="button"
+          onClick={onApplyThisSlotOnly}
+          className="w-full rounded-md border border-slate-200 bg-white px-2 py-2.5 text-left text-[12px] font-medium text-slate-700 transition hover:bg-slate-50 active:scale-[0.99]"
+        >
+          Just this lesson
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function SubjectApplyDialogBody({ prompt, timetable, onClose, onApplySelected }) {
+  const allLessonIds = useMemo(() => collectAllLessonIds(timetable), [timetable]);
+  const [selected, setSelected] = useState(() => new Set([prompt.lessonId]));
+
+  useEffect(() => {
+    setSelected(new Set([prompt.lessonId]));
+  }, [prompt.lessonId, prompt.newSubject, prompt.oldSubject]);
+
+  function toggle(id) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  const nSel = selected.size;
+
+  function confirmApply() {
+    if (nSel === 0) return;
+    onApplySelected([...selected]);
+  }
+
+  return (
+    <div className="relative w-[min(94vw,23rem)] rounded-lg border border-slate-200 bg-white px-3 pb-2 pt-2 shadow-[0_10px_26px_-10px_rgba(15,23,42,0.32)]">
+      <button
+        type="button"
+        onClick={onClose}
+        className="absolute right-1.5 top-1.5 rounded-md p-1 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
+        aria-label="Close"
+      >
+        <X className="h-4 w-4" />
+      </button>
+      <p className="pr-7 text-[12px] font-semibold leading-tight text-slate-900">
+        {prompt.newSubject.trim() || "—"}
+      </p>
+      <div className="mt-1 flex justify-end gap-3 text-[9px]">
+        <button
+          type="button"
+          className="font-medium text-sky-700 underline decoration-sky-400/60 hover:text-sky-900"
+          onClick={() => setSelected(new Set(allLessonIds))}
+        >
+          All
+        </button>
+        <button
+          type="button"
+          className="font-medium text-slate-600 underline hover:text-slate-900"
+          onClick={() => setSelected(new Set())}
+        >
+          None
+        </button>
+      </div>
+      <BulkLessonPickGrid
+        timetable={timetable}
+        subjectForMatch={prompt.oldSubject}
+        selectedIds={selected}
+        onToggle={toggle}
+      />
+      <div className="mt-2 flex justify-end">
+        <button
+          type="button"
+          disabled={nSel === 0}
+          onClick={confirmApply}
+          className="rounded-full p-2 text-slate-400 transition hover:bg-emerald-50 hover:text-emerald-600 disabled:cursor-not-allowed disabled:opacity-40"
+          aria-label={nSel > 0 ? `Apply class title to ${nSel} selected slots` : "Select at least one slot"}
+          title={nSel > 0 ? `Apply to ${nSel} slot${nSel === 1 ? "" : "s"}` : "Select at least one slot"}
+        >
+          <Check className="h-6 w-6" />
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function findLessonInTimetable(timetable, lessonId) {
   for (const day of timetable) {
     const item = day.items.find((i) => i.id === lessonId && i.type === "lesson");
@@ -1715,6 +1991,287 @@ function findDutySlotInTimetable(timetable, dutyId) {
     if (itemIndex !== -1) return { day: day.day, itemIndex };
   }
   return null;
+}
+
+function newTimetableItemId(prefix) {
+  return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+}
+
+/** Inserted lesson row; Wednesday stays within P1–P4 so normalization does not strip it */
+function newLessonSlotForDay(dayName, dayItems) {
+  const lessons = dayItems.filter((i) => i.type === "lesson");
+  const used = new Set(lessons.map((i) => String(i.period ?? "").trim()));
+  const pool = dayName === "Wednesday" ? ["P1", "P2", "P3", "P4"] : ["P1", "P2", "P3", "P4", "P5", "P6", "P7", "P8"];
+  let period = pool.find((p) => !used.has(p));
+  if (!period) {
+    period = dayName === "Wednesday" ? "P4" : `P${lessons.length + 1}`;
+  }
+  return {
+    id: newTimetableItemId("lesson"),
+    type: "lesson",
+    period,
+    time: "—",
+    subject: "",
+    room: "",
+    note: "",
+    slotPlanned: false,
+  };
+}
+
+function newDutySlot() {
+  return {
+    id: newTimetableItemId("duty"),
+    type: "duty",
+    label: "",
+    time: "",
+  };
+}
+
+/**
+ * Add/remove timetable row(s): minimal dialog — position + lesson|duty + day chips, or remove + day chips.
+ * `variant`: "add" | "remove" | null
+ */
+function ScheduleCellModal({ variant, anchorDayName, onClose, onAdd, onRemove }) {
+  const [position, setPosition] = useState("below");
+  const [kind, setKind] = useState("lesson");
+  const [selectedDays, setSelectedDays] = useState(() => new Set([anchorDayName]));
+
+  useEffect(() => {
+    if (!variant) return;
+    setPosition("below");
+    setKind("lesson");
+    setSelectedDays(new Set([anchorDayName]));
+  }, [variant, anchorDayName]);
+
+  useEffect(() => {
+    if (!variant) return;
+    const onKey = (e) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [variant, onClose]);
+
+  function toggleDay(d) {
+    setSelectedDays((prev) => {
+      const next = new Set(prev);
+      if (next.has(d)) {
+        if (next.size > 1) next.delete(d);
+      } else {
+        next.add(d);
+      }
+      return next;
+    });
+  }
+
+  if (!variant || typeof document === "undefined") return null;
+
+  const dayShort = { Monday: "Mon", Tuesday: "Tue", Wednesday: "Wed", Thursday: "Thu", Friday: "Fri" };
+
+  return createPortal(
+    <>
+      <div className="fixed inset-0 z-[102] bg-slate-900/20" aria-hidden onClick={onClose} />
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="schedule-cell-title"
+        className="fixed left-1/2 top-1/2 z-[103] w-[min(18.5rem,calc(100%-20px))] -translate-x-1/2 -translate-y-1/2 rounded-xl border border-slate-200/90 bg-white p-4 shadow-[0_20px_50px_-12px_rgba(15,23,42,0.22)]"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-start justify-between gap-2 border-b border-slate-100 pb-2">
+          <h2 id="schedule-cell-title" className="text-[13px] font-semibold tracking-tight text-slate-900">
+            {variant === "add" ? "Add cell" : "Remove cell"}
+          </h2>
+          <button
+            type="button"
+            className="rounded-md p-1 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
+            aria-label="Close"
+            onClick={onClose}
+          >
+            ×
+          </button>
+        </div>
+
+        {variant === "add" ? (
+          <>
+            <div className="mt-3 space-y-3">
+              <div>
+                <p className="mb-1 text-[9px] font-semibold uppercase tracking-[0.12em] text-slate-400">Position</p>
+                <div className="flex rounded-lg bg-slate-100 p-0.5">
+                  <button
+                    type="button"
+                    className={cn(
+                      "flex-1 rounded-md py-1.5 text-[11px] font-medium transition",
+                      position === "above" ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700"
+                    )}
+                    onClick={() => setPosition("above")}
+                  >
+                    Above
+                  </button>
+                  <button
+                    type="button"
+                    className={cn(
+                      "flex-1 rounded-md py-1.5 text-[11px] font-medium transition",
+                      position === "below" ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700"
+                    )}
+                    onClick={() => setPosition("below")}
+                  >
+                    Below
+                  </button>
+                </div>
+              </div>
+              <div>
+                <p className="mb-1 text-[9px] font-semibold uppercase tracking-[0.12em] text-slate-400">Type</p>
+                <div className="flex rounded-lg bg-slate-100 p-0.5">
+                  <button
+                    type="button"
+                    className={cn(
+                      "flex-1 rounded-md py-1.5 text-[11px] font-medium transition",
+                      kind === "lesson" ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700"
+                    )}
+                    onClick={() => setKind("lesson")}
+                  >
+                    Lesson
+                  </button>
+                  <button
+                    type="button"
+                    className={cn(
+                      "flex-1 rounded-md py-1.5 text-[11px] font-medium transition",
+                      kind === "duty" ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700"
+                    )}
+                    onClick={() => setKind("duty")}
+                  >
+                    Duty
+                  </button>
+                </div>
+              </div>
+              <div>
+                <p className="mb-1 text-[9px] font-semibold uppercase tracking-[0.12em] text-slate-400">Days</p>
+                <div className="flex flex-wrap gap-1">
+                  {TT_WEEKDAY_ORDER.map((d) => (
+                    <button
+                      key={d}
+                      type="button"
+                      onClick={() => toggleDay(d)}
+                      className={cn(
+                        "min-w-[2.35rem] rounded-full px-2 py-1 text-[10px] font-semibold transition",
+                        selectedDays.has(d)
+                          ? "bg-slate-800 text-white"
+                          : "bg-slate-100 text-slate-500 hover:bg-slate-200"
+                      )}
+                    >
+                      {dayShort[d] ?? d}
+                    </button>
+                  ))}
+                </div>
+                <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1">
+                  <button
+                    type="button"
+                    className="text-[10px] font-medium text-slate-500 underline decoration-slate-300 underline-offset-2 hover:text-slate-800"
+                    onClick={() => setSelectedDays(new Set([anchorDayName]))}
+                  >
+                    This day
+                  </button>
+                  <button
+                    type="button"
+                    className="text-[10px] font-medium text-slate-500 underline decoration-slate-300 underline-offset-2 hover:text-slate-800"
+                    onClick={() => setSelectedDays(new Set(TT_WEEKDAY_ORDER))}
+                  >
+                    Mon–Fri
+                  </button>
+                </div>
+              </div>
+            </div>
+            <div className="mt-4 flex justify-end gap-2 border-t border-slate-100 pt-3">
+              <button
+                type="button"
+                className="rounded-full px-3 py-1.5 text-[11px] font-medium text-slate-600 hover:bg-slate-100"
+                onClick={onClose}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="rounded-full bg-slate-900 px-3 py-1.5 text-[11px] font-semibold text-white hover:opacity-95"
+                onClick={() =>
+                  onAdd({
+                    position,
+                    kind,
+                    targetDays: TT_WEEKDAY_ORDER.filter((d) => selectedDays.has(d)),
+                  })
+                }
+              >
+                Add
+              </button>
+            </div>
+          </>
+        ) : (
+          <>
+            <p className="mt-2 text-[11px] leading-relaxed text-slate-500">
+              Remove this row from the selected days (same row position on each day).
+            </p>
+            <div className="mt-3">
+              <p className="mb-1 text-[9px] font-semibold uppercase tracking-[0.12em] text-slate-400">Days</p>
+              <div className="flex flex-wrap gap-1">
+                {TT_WEEKDAY_ORDER.map((d) => (
+                  <button
+                    key={d}
+                    type="button"
+                    onClick={() => toggleDay(d)}
+                    className={cn(
+                      "min-w-[2.35rem] rounded-full px-2 py-1 text-[10px] font-semibold transition",
+                      selectedDays.has(d)
+                        ? "bg-slate-800 text-white"
+                        : "bg-slate-100 text-slate-500 hover:bg-slate-200"
+                    )}
+                  >
+                    {dayShort[d] ?? d}
+                  </button>
+                ))}
+              </div>
+              <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1">
+                <button
+                  type="button"
+                  className="text-[10px] font-medium text-slate-500 underline decoration-slate-300 underline-offset-2 hover:text-slate-800"
+                  onClick={() => setSelectedDays(new Set([anchorDayName]))}
+                >
+                  This day
+                </button>
+                <button
+                  type="button"
+                  className="text-[10px] font-medium text-slate-500 underline decoration-slate-300 underline-offset-2 hover:text-slate-800"
+                  onClick={() => setSelectedDays(new Set(TT_WEEKDAY_ORDER))}
+                >
+                  Mon–Fri
+                </button>
+              </div>
+            </div>
+            <div className="mt-4 flex justify-end gap-2 border-t border-slate-100 pt-3">
+              <button
+                type="button"
+                className="rounded-full px-3 py-1.5 text-[11px] font-medium text-slate-600 hover:bg-slate-100"
+                onClick={onClose}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="rounded-full bg-red-600 px-3 py-1.5 text-[11px] font-semibold text-white hover:bg-red-700"
+                onClick={() =>
+                  onRemove({
+                    targetDays: TT_WEEKDAY_ORDER.filter((d) => selectedDays.has(d)),
+                  })
+                }
+              >
+                Remove
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+    </>,
+    document.body
+  );
 }
 
 /** Fixed popover above anchor (viewport coords); flips below if not enough room */
@@ -1808,11 +2365,55 @@ function dashboardBellReminderPanelStyle(anchor, panelWidth = 292) {
   return dashboardCalcPanelStyle(anchor, panelWidth);
 }
 
-function getReminderStatus(date) {
-  const today = 24;
-  if (date === today) return "today";
-  if (date >= today && date <= 29) return "thisWeek";
-  if (date > 29 && date <= 31) return "nextWeek";
+function startOfLocalDay(input) {
+  const d = input instanceof Date ? input : new Date(input);
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate());
+}
+
+function mondayOfLocalWeek(input = new Date()) {
+  const d = startOfLocalDay(input);
+  const delta = (d.getDay() + 6) % 7;
+  d.setDate(d.getDate() - delta);
+  return d;
+}
+
+function schoolWeekMonday(input = new Date()) {
+  const d = startOfLocalDay(input);
+  // On Sunday, teachers usually mean the coming school week.
+  if (d.getDay() === 0) d.setDate(d.getDate() + 1);
+  return mondayOfLocalWeek(d);
+}
+
+function isoDateFromLocalDate(input = new Date()) {
+  const d = startOfLocalDay(input);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+function parseIsoToLocalDate(iso) {
+  if (typeof iso !== "string") return null;
+  const m = iso.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return null;
+  const y = Number(m[1]);
+  const mo = Number(m[2]);
+  const d = Number(m[3]);
+  if (![y, mo, d].every(Number.isFinite)) return null;
+  const out = new Date(y, mo - 1, d);
+  if (Number.isNaN(out.getTime())) return null;
+  return startOfLocalDay(out);
+}
+
+function getReminderStatus(date, month, year) {
+  if (![date, month, year].every(Number.isFinite)) return "later";
+  const target = startOfLocalDay(new Date(year, month, date));
+  if (Number.isNaN(target.getTime())) return "later";
+  const today = startOfLocalDay(new Date());
+  const deltaDays = Math.round((target.getTime() - today.getTime()) / 86400000);
+  if (deltaDays === 0) return "today";
+  if (deltaDays === 1) return "tomorrow";
+  if (deltaDays >= 2 && deltaDays <= 6) return "thisWeek";
   return "later";
 }
 
@@ -1827,22 +2428,22 @@ function getCalendarEventTone(status, kind = "reminder") {
     };
   }
 
-  if (status === "thisWeek") {
+  if (status === "tomorrow") {
     return {
       card: "border-l-4 border-red-500 bg-red-500/90",
       dot: "bg-red-500",
       text: "text-white font-medium",
-      label: "This week",
+      label: "Tomorrow",
       chip: "bg-white/40 text-white border-white/50",
     };
   }
 
-  if (status === "nextWeek") {
+  if (status === "thisWeek") {
     return {
       card: "border-l-4 border-orange-400 bg-orange-400/90",
       dot: "bg-orange-500",
       text: "text-white font-medium",
-      label: "Next week",
+      label: "This week",
       chip: "bg-white/40 text-white border-white/50",
     };
   }
@@ -1860,9 +2461,8 @@ function getCalendarEventTone(status, kind = "reminder") {
 function upcomingMonthListTextClass(item) {
   if (item?.kind === "celebration") return "font-medium text-purple-700";
   const status = item?.status ?? "later";
-  if (status === "today") return "font-medium text-red-700";
-  if (status === "thisWeek") return "font-medium text-red-600";
-  if (status === "nextWeek") return "font-medium text-orange-700";
+  if (status === "today" || status === "tomorrow") return "font-medium text-red-700";
+  if (status === "thisWeek") return "font-medium text-orange-700";
   return "font-medium text-slate-600";
 }
 
@@ -2127,9 +2727,13 @@ function LessonSlotRow({
   onOpenSlotDetail,
   onOpenAddLessonForSlot,
   onOpenAccentPicker,
-  onLineNoteCommit,
+  onOpenStudentNoteEntryForLesson,
   onSlotNoteCommit,
+  onLessonHeaderCommitAttempt,
+  subjectApplyPrompt,
   onOpenCalendarKind,
+  insertCellsAtAnchor,
+  removeCellsAtAnchor,
   isFocusDay = false,
   isExpanded,
   onToggleExpand,
@@ -2143,7 +2747,8 @@ function LessonSlotRow({
   const importantNote = hasImportantNote(lesson);
   const accentOpt = lessonAccentOption(lesson);
   const planned = lessonSlotHasPlan(lesson);
-  const savedLine = (lesson.lineNote ?? "").trim();
+  const roomTrim = (lesson.room ?? "").trim();
+  const roomShowPlaceholder = !roomTrim || roomTrim === "—";
   const lp = lesson.lessonPlan;
   const planLearningIntention = (lp?.learningIntention ?? "").trim();
   const planSuccessCriteriaList = Array.isArray(lp?.successCriteria)
@@ -2151,62 +2756,55 @@ function LessonSlotRow({
     : [];
   const planSuccessCriteriaText = planSuccessCriteriaList.join(" · ");
   const planLessonTopic = (lp?.lessonTopic ?? "").trim();
-  const headerRowTitle = lessonSlotDisplayTitle(lesson);
-  const isDemoPlaceholderSlot = isMondayP1Lesson(dayName, lesson.period);
 
   const isLessonEditing = (field) =>
     editingField?.itemId === lesson.id && editingField?.field === field && editingField?.type === "lesson";
 
   const titleHitClass =
     "min-w-0 truncate rounded-[2px] border border-transparent px-0.5 text-left font-medium outline-none transition hover:border-slate-200/80 hover:bg-slate-50/80";
-  const hasPreviewBlock = Boolean(
-    planLessonTopic || planLearningIntention || planSuccessCriteriaText
-  );
   const planTail = lessonPlanHasExpandableTail(lp);
   const sequenceItems = Array.isArray(lp?.sequence)
     ? lp.sequence.filter((s) => String(s?.text || "").trim())
     : [];
-  const [lineEditorOpen, setLineEditorOpen] = useState(false);
-  const [draft, setDraft] = useState(lesson.lineNote ?? "");
+  const [headerDraft, setHeaderDraft] = useState(() => lessonHeaderTitleForEdit(lesson));
   const [plusMenuAnchor, setPlusMenuAnchor] = useState(null);
-  const [clampOverflow, setClampOverflow] = useState(false);
-  const inputRef = useRef(null);
+  const [cellModal, setCellModal] = useState(null);
+  const headerInputRef = useRef(null);
+  const roomInputRef = useRef(null);
+  const skipNextHeaderBlurCommitRef = useRef(false);
+  const prevSubjectApplyRef = useRef(null);
+  const prevRoomEditingRef = useRef(false);
   const plusBtnRef = useRef(null);
-  const previewRef = useRef(null);
 
   const bodyText = cn("break-words leading-snug text-slate-600", "text-[9px]", isFocusDay && "text-[10px]");
+  const showExpandChevron = planTail;
+
+  useEffect(() => {
+    if (headerInputRef.current === document.activeElement) return;
+    setHeaderDraft(lessonHeaderTitleForEdit(lesson));
+  }, [lesson.id, lesson.subject, lesson.classGroup, lesson.lessonPlan?.lessonTopic]);
+
+  useEffect(() => {
+    const prev = prevSubjectApplyRef.current;
+    prevSubjectApplyRef.current = subjectApplyPrompt;
+    if (headerInputRef.current === document.activeElement) return;
+    if (prev && !subjectApplyPrompt && prev.lessonId === lesson.id) {
+      setHeaderDraft(lessonHeaderTitleForEdit(lesson));
+    }
+  }, [subjectApplyPrompt, lesson.id, lesson.subject, lesson.classGroup, lesson.lessonPlan?.lessonTopic]);
 
   useLayoutEffect(() => {
-    if (isExpanded) {
-      setClampOverflow(false);
-      return;
+    const editingRoom =
+      editingField?.itemId === lesson.id && editingField?.field === "room" && editingField?.type === "lesson";
+    if (editingRoom && !prevRoomEditingRef.current) {
+      const el = roomInputRef.current;
+      if (el) {
+        el.focus();
+        el.select();
+      }
     }
-    const el = previewRef.current;
-    if (!el) {
-      setClampOverflow(false);
-      return;
-    }
-    const measure = () => {
-      setClampOverflow(el.scrollHeight > el.clientHeight + 1);
-    };
-    measure();
-    const ro = typeof ResizeObserver !== "undefined" ? new ResizeObserver(measure) : null;
-    ro?.observe(el);
-    return () => ro?.disconnect();
-  }, [isExpanded, planLessonTopic, planLearningIntention, planSuccessCriteriaText, isFocusDay]);
-
-  const showExpandChevron = planTail || clampOverflow || (isExpanded && hasPreviewBlock);
-  const showPlanDivider = hasPreviewBlock || (isExpanded && planTail);
-
-  useEffect(() => {
-    setDraft(lesson.lineNote ?? "");
-  }, [lesson.id, lesson.lineNote]);
-
-  useEffect(() => {
-    if (!lineEditorOpen) return;
-    const id = requestAnimationFrame(() => inputRef.current?.focus());
-    return () => cancelAnimationFrame(id);
-  }, [lineEditorOpen]);
+    prevRoomEditingRef.current = editingRoom;
+  }, [editingField?.itemId, editingField?.field, editingField?.type, lesson.id]);
 
   useEffect(() => {
     if (!plusMenuAnchor) return;
@@ -2216,16 +2814,6 @@ function LessonSlotRow({
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [plusMenuAnchor]);
-
-  function commitIfChanged() {
-    const t = draft.trim();
-    if (t !== savedLine) onLineNoteCommit(lesson.id, draft);
-  }
-
-  function closeEditor() {
-    commitIfChanged();
-    setLineEditorOpen(false);
-  }
 
   function calendarDefaultTitle() {
     const a = lessonSlotDisplayTitle(lesson);
@@ -2248,7 +2836,7 @@ function LessonSlotRow({
     if (r) setPlusMenuAnchor({ left: r.left, right: r.right, bottom: r.bottom, top: r.top });
   }
 
-  const panelW = 184;
+  const panelW = insertCellsAtAnchor && removeCellsAtAnchor ? 200 : 184;
   const plusMenuPortal =
     typeof document !== "undefined" && plusMenuAnchor
       ? createPortal(
@@ -2264,7 +2852,7 @@ function LessonSlotRow({
             <div
               role="menu"
               aria-label="Lesson actions"
-              className="fixed z-[101] w-[11.5rem] overflow-hidden rounded-lg border border-slate-200/90 bg-white py-1 shadow-lg"
+              className="fixed z-[101] max-h-[min(70vh,24rem)] w-[min(14rem,calc(100vw-16px))] overflow-y-auto overflow-x-hidden rounded-lg border border-slate-200/90 bg-white py-1 shadow-lg"
               style={{
                 top: plusMenuAnchor.bottom + 6,
                 left: Math.max(
@@ -2278,7 +2866,7 @@ function LessonSlotRow({
               onClick={(e) => e.stopPropagation()}
             >
               {[
-                { key: "lineNote", label: "One-line note" },
+                { key: "studentNote", label: "Add Student Note" },
                 { key: "lesson", label: "Lesson" },
                 { key: "reminder", label: "Reminder", kind: "reminder" },
                 { key: "task", label: "Task", kind: "task" },
@@ -2291,9 +2879,8 @@ function LessonSlotRow({
                   className="flex w-full px-3 py-2 text-left text-[11px] font-medium text-slate-700 transition hover:bg-slate-50"
                   onClick={() => {
                     closePlusMenu();
-                    if (opt.key === "lineNote") {
-                      setDraft(lesson.lineNote ?? "");
-                      setLineEditorOpen(true);
+                    if (opt.key === "studentNote") {
+                      onOpenStudentNoteEntryForLesson(lesson, dayName);
                       return;
                     }
                     if (opt.key === "lesson") {
@@ -2307,6 +2894,36 @@ function LessonSlotRow({
                   {opt.label}
                 </button>
               ))}
+              {insertCellsAtAnchor && removeCellsAtAnchor ? (
+                <>
+                  <div className="my-1 border-t border-slate-100" role="separator" />
+                  <p className="px-3 pb-1 pt-0.5 text-[9px] font-semibold uppercase tracking-wide text-slate-400">
+                    Cell
+                  </p>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className="flex w-full px-3 py-2 text-left text-[11px] font-medium text-slate-700 transition hover:bg-slate-50"
+                    onClick={() => {
+                      closePlusMenu();
+                      setCellModal("add");
+                    }}
+                  >
+                    Add cell…
+                  </button>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className="flex w-full px-3 py-2 text-left text-[11px] font-medium text-slate-700 transition hover:bg-slate-50"
+                    onClick={() => {
+                      closePlusMenu();
+                      setCellModal("remove");
+                    }}
+                  >
+                    Remove cell…
+                  </button>
+                </>
+              ) : null}
             </div>
           </>,
           document.body
@@ -2330,137 +2947,104 @@ function LessonSlotRow({
         <div className="flex w-full items-start gap-1.5">
           <div className="min-w-0 flex-1">
             <div className="flex min-w-0 max-w-full flex-nowrap items-baseline gap-0">
-              {isLessonEditing("headerLabel") ? (
-                <input
-                  autoFocus
-                  value={editingValue}
-                  onChange={(e) => onEditChange(e.target.value)}
-                  onFocus={(e) => e.target.select()}
-                  onBlur={onEditSave}
-                  onClick={(e) => e.stopPropagation()}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") onEditSave();
-                    if (e.key === "Escape") onEditCancel();
-                  }}
-                  className={cn(
-                    "min-w-0 max-w-[calc(100%-4.5rem)] shrink rounded-[3px] border border-slate-300 bg-white px-1 text-[10px] text-slate-900 outline-none",
-                    isFocusDay && "text-[11px]"
-                  )}
-                />
-              ) : (
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onStartEdit(lesson.id, "headerLabel", headerRowTitle, "lesson");
-                  }}
-                  className={cn(
-                    titleHitClass,
-                    "min-w-0 max-w-[calc(100%-4.5rem)] shrink truncate text-[10px] text-slate-800",
-                    isFocusDay && "text-[11px]",
-                    headerRowTitle === "—" && "italic text-slate-500"
-                  )}
-                  title="Class and subject"
-                >
-                  {headerRowTitle}
-                </button>
-              )}
-              {isLessonEditing("room") ? (
-                <input
-                  autoFocus
-                  value={editingValue}
-                  onChange={(e) => onEditChange(e.target.value)}
-                  onFocus={(e) => e.target.select()}
-                  onBlur={onEditSave}
-                  onClick={(e) => e.stopPropagation()}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") onEditSave();
-                    if (e.key === "Escape") onEditCancel();
-                  }}
-                  className={cn(
-                    "ml-[2ch] w-[3.5rem] shrink-0 rounded-[3px] border border-slate-300 bg-white px-0.5 text-left text-[10px] text-slate-900 outline-none sm:w-16",
-                    isFocusDay && "text-[11px]"
-                  )}
-                />
-              ) : (
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onStartEdit(lesson.id, "room", lesson.room ?? "", "lesson");
-                  }}
-                  className={cn(
-                    titleHitClass,
-                    "ml-[2ch] max-w-[5rem] shrink-0 truncate text-left text-[10px] text-slate-600 sm:max-w-[6rem]",
-                    isFocusDay && "text-[11px]"
-                  )}
-                  title={(lesson.room ?? "").trim() || "Room"}
-                >
-                  {(lesson.room ?? "").trim() || "—"}
-                </button>
-              )}
-            </div>
-            {lineEditorOpen ? (
               <input
-                ref={inputRef}
+                ref={headerInputRef}
                 type="text"
-                value={draft}
-                onChange={(e) => setDraft(e.target.value)}
-                onFocus={(e) => e.target.select()}
+                value={headerDraft}
+                onChange={(e) => setHeaderDraft(e.target.value)}
+                onBlur={() => {
+                  if (skipNextHeaderBlurCommitRef.current) {
+                    skipNextHeaderBlurCommitRef.current = false;
+                    return;
+                  }
+                  const t = headerDraft.trim();
+                  const next = t || "—";
+                  const opened = onLessonHeaderCommitAttempt(lesson.id, next);
+                  if (!opened) {
+                    setHeaderDraft(next === "—" ? "" : next);
+                  }
+                }}
                 onClick={(e) => e.stopPropagation()}
-                onBlur={closeEditor}
+                onPointerDown={(e) => {
+                  if (e.button !== 0) return;
+                  const el = headerInputRef.current;
+                  if (!el || document.activeElement === el) return;
+                  requestAnimationFrame(() => {
+                    if (document.activeElement === el) el.select();
+                  });
+                }}
+                onFocus={(e) => e.stopPropagation()}
                 onKeyDown={(e) => {
                   if (e.key === "Enter") {
                     e.preventDefault();
-                    closeEditor();
+                    e.stopPropagation();
+                    const t = headerDraft.trim();
+                    const next = t || "—";
+                    const opened = onLessonHeaderCommitAttempt(lesson.id, next, { openPicker: true });
+                    if (opened) {
+                      skipNextHeaderBlurCommitRef.current = true;
+                    }
+                    return;
                   }
                   if (e.key === "Escape") {
                     e.preventDefault();
-                    setDraft(lesson.lineNote ?? "");
-                    setLineEditorOpen(false);
+                    e.stopPropagation();
+                    setHeaderDraft(lessonHeaderTitleForEdit(lesson));
+                    e.currentTarget.blur();
                   }
                 }}
-                maxLength={160}
-                placeholder={isDemoPlaceholderSlot ? DEFAULT_LINE_NOTE_PLACEHOLDER : ""}
-                aria-label="One-line note"
+                placeholder={DEFAULT_CLASS_SUBJECT_PLACEHOLDER}
+                aria-label="Class and subject"
+                title="Class and subject"
                 className={cn(
-                  "mt-0.5 w-full rounded border border-transparent bg-transparent px-0.5 py-0.5 text-left text-[9px] leading-tight text-slate-800 outline-none transition hover:bg-slate-50/50 placeholder:text-slate-400/60 focus:border-slate-300/40 focus:ring-0",
-                  isFocusDay && "text-[10px]"
+                  "min-w-0 max-w-[calc(100%-4.5rem)] shrink select-text rounded border border-transparent bg-transparent px-0.5 py-0 text-left text-[10px] font-medium text-slate-800 outline-none ring-0 transition placeholder:text-slate-400/70 hover:bg-slate-50/50 focus:border-slate-300/40",
+                  isFocusDay && "text-[11px]"
                 )}
               />
-            ) : (
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setDraft(lesson.lineNote ?? "");
-                  setLineEditorOpen(true);
-                }}
-                aria-label={savedLine ? "Edit one-line note" : "Add one-line note"}
-                title={savedLine || undefined}
-                className={cn(
-                  "mt-0.5 line-clamp-2 w-full rounded bg-transparent px-0.5 text-left text-[9px] leading-tight transition hover:bg-slate-50/50",
-                  savedLine ? "text-slate-600" : isDemoPlaceholderSlot ? "text-slate-400/60" : "text-slate-600",
-                  isFocusDay && "text-[10px]",
-                  !savedLine && "min-h-[1.25rem] py-0.5"
-                )}
-              >
-                {savedLine || (isDemoPlaceholderSlot ? DEFAULT_LINE_NOTE_PLACEHOLDER : "\u00a0")}
-              </button>
-            )}
-            <textarea
-              value={lesson.note ?? ""}
-              onChange={(e) => onSlotNoteCommit(lesson.id, e.target.value)}
-              onFocus={(e) => e.target.select()}
-              onClick={(e) => e.stopPropagation()}
-              rows={2}
-              placeholder={isDemoPlaceholderSlot ? DEFAULT_LESSON_NOTE_PLACEHOLDER : ""}
-              aria-label="Lesson note on timetable"
-              className={cn(
-                "mt-0.5 w-full cursor-text resize-none rounded border border-transparent bg-transparent px-1 py-0.5 text-[9px] leading-snug text-slate-800 outline-none ring-0 transition hover:bg-slate-50/50 placeholder:text-slate-400/60 focus:border-slate-300/40 focus:ring-0",
-                isFocusDay && "text-[10px]"
+              {isLessonEditing("room") ? (
+                <input
+                  ref={roomInputRef}
+                  value={editingValue}
+                  onChange={(e) => onEditChange(e.target.value)}
+                  onPointerDown={(e) => {
+                    if (e.button !== 0) return;
+                    const el = roomInputRef.current;
+                    if (!el || document.activeElement === el) return;
+                    requestAnimationFrame(() => {
+                      if (document.activeElement === el) el.select();
+                    });
+                  }}
+                  onBlur={onEditSave}
+                  onClick={(e) => e.stopPropagation()}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") onEditSave();
+                    if (e.key === "Escape") onEditCancel();
+                  }}
+                  placeholder={DEFAULT_ROOM_PLACEHOLDER}
+                  className={cn(
+                    "ml-[2ch] w-[3.5rem] shrink-0 select-text rounded-[3px] border border-slate-300 bg-white px-0.5 text-left text-[10px] text-slate-900 outline-none placeholder:text-slate-400/70 sm:w-16",
+                    isFocusDay && "text-[11px]"
+                  )}
+                />
+              ) : (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onStartEdit(lesson.id, "room", roomShowPlaceholder ? "" : lesson.room ?? "", "lesson");
+                  }}
+                  className={cn(
+                    titleHitClass,
+                    "ml-[2ch] max-w-[5rem] shrink-0 truncate text-left text-[10px] sm:max-w-[6rem]",
+                    roomShowPlaceholder ? "text-slate-400/80" : "text-slate-600",
+                    isFocusDay && "text-[11px]"
+                  )}
+                  title={roomTrim || DEFAULT_ROOM_PLACEHOLDER}
+                >
+                  {roomShowPlaceholder ? DEFAULT_ROOM_PLACEHOLDER : roomTrim}
+                </button>
               )}
-            />
+            </div>
           </div>
           <div className="flex shrink-0 items-center gap-1 self-start">
             <button
@@ -2508,7 +3092,7 @@ function LessonSlotRow({
                   }}
                   className={cn(
                     "flex h-6 w-6 shrink-0 items-center justify-center rounded-md transition hover:bg-slate-100/80",
-                    !isExpanded && (planTail || clampOverflow) ? "text-emerald-600" : "text-slate-400",
+                    !isExpanded && planTail ? "text-emerald-600" : "text-slate-400",
                     isExpanded && "text-slate-500"
                   )}
                   aria-expanded={isExpanded}
@@ -2541,71 +3125,44 @@ function LessonSlotRow({
           </div>
         </div>
 
-        {(hasPreviewBlock || planTail) ? (
-          <div
-            className={cn(
-              "w-full min-w-0 space-y-0.5 pt-1",
-              showPlanDivider && "border-t border-slate-100/80"
-            )}
-          >
-            {hasPreviewBlock ? (
-              !isExpanded ? (
-                <div ref={previewRef} className="min-w-0 space-y-0.5 line-clamp-5">
-                  {planLessonTopic ? (
-                    <p
-                      className={cn(bodyText, "font-medium text-slate-700")}
-                      title={planLessonTopic}
-                    >
-                      {planLessonTopic}
-                    </p>
-                  ) : null}
-                  {planLearningIntention ? (
-                    <p className={bodyText} title={planLearningIntention}>
-                      {planLearningIntention}
-                    </p>
-                  ) : null}
-                  {planSuccessCriteriaText ? (
-                    <p className={bodyText} title={planSuccessCriteriaText}>
-                      {planSuccessCriteriaText}
-                    </p>
-                  ) : null}
-                </div>
-              ) : (
-                <div className="min-w-0 space-y-0.5">
-                  {planLessonTopic ? (
-                    <p
-                      className={cn(bodyText, "font-medium text-slate-700")}
-                      title={planLessonTopic}
-                    >
-                      {planLessonTopic}
-                    </p>
-                  ) : null}
-                  {planLearningIntention ? (
-                    <p className={bodyText} title={planLearningIntention}>
-                      {planLearningIntention}
-                    </p>
-                  ) : null}
-                  {planSuccessCriteriaList.length > 1 ? (
-                    <ul className={cn(bodyText, "list-inside list-disc space-y-0.5")}>
-                      {planSuccessCriteriaList.map((t, i) => (
-                        <li key={i}>{t}</li>
-                      ))}
-                    </ul>
-                  ) : planSuccessCriteriaText ? (
-                    <p className={bodyText} title={planSuccessCriteriaText}>
-                      {planSuccessCriteriaText}
-                    </p>
-                  ) : null}
-                </div>
-              )
+        <textarea
+          value={lesson.note ?? ""}
+          onChange={(e) => onSlotNoteCommit(lesson.id, e.target.value)}
+          onFocus={(e) => e.target.select()}
+          onClick={(e) => e.stopPropagation()}
+          rows={1}
+          placeholder={DEFAULT_SLOT_NOTE_PLACEHOLDER}
+          aria-label="Lesson note on timetable"
+          className={cn(
+            "mt-0.5 w-full cursor-text resize-none rounded border border-transparent bg-transparent px-1 py-0.5 text-[9px] leading-snug text-slate-800 outline-none ring-0 transition hover:bg-slate-50/50 placeholder:text-slate-400/60 focus:border-slate-300/40 focus:ring-0",
+            isFocusDay && "text-[10px]"
+          )}
+        />
+        {planLessonTopic || planLearningIntention || planSuccessCriteriaText ? (
+          <div className="mt-0.5 w-full min-w-0 space-y-0.5 border-t border-slate-100/80 pt-0.5">
+            {planLessonTopic ? (
+              <p className={cn(bodyText, "w-full")} title={planLessonTopic}>
+                <span className="font-semibold text-slate-400">Focus: </span>
+                <span className="whitespace-normal break-words">{planLessonTopic}</span>
+              </p>
             ) : null}
-            {isExpanded && planTail ? (
-              <div
-                className={cn(
-                  "space-y-1.5 pt-1.5",
-                  hasPreviewBlock && "border-t border-slate-100/60"
-                )}
-              >
+            {planLearningIntention ? (
+              <p className={cn(bodyText, "w-full")} title={planLearningIntention}>
+                <span className="font-semibold text-slate-400">Intention: </span>
+                <span className="whitespace-normal break-words">{planLearningIntention}</span>
+              </p>
+            ) : null}
+            {planSuccessCriteriaText ? (
+              <p className={cn(bodyText, "w-full")} title={planSuccessCriteriaText}>
+                <span className="font-semibold text-slate-400">Success: </span>
+                <span className="whitespace-normal break-words">{planSuccessCriteriaText}</span>
+              </p>
+            ) : null}
+          </div>
+        ) : null}
+
+        {isExpanded && planTail ? (
+          <div className="w-full min-w-0 space-y-1.5 border-t border-slate-100/80 pt-1.5">
                 {sequenceItems.length ? (
                   <div>
                     <p className="mb-0.5 text-[8px] font-semibold uppercase tracking-wide text-slate-400">
@@ -2618,7 +3175,10 @@ function LessonSlotRow({
                             {String(s.phase || "Step").trim()}
                           </span>
                           {" — "}
-                          {String(s.text || "").trim()}
+                          <LinkifiedText
+                            text={String(s.text || "").trim()}
+                            className={bodyText}
+                          />
                         </li>
                       ))}
                     </ul>
@@ -2627,13 +3187,16 @@ function LessonSlotRow({
                 {String(lp?.resources || "").trim() ? (
                   <p className={bodyText}>
                     <span className="font-semibold text-slate-500">Resources: </span>
-                    {String(lp.resources).trim()}
+                    <LinkifiedText
+                      text={String(lp.resources).trim()}
+                      className={bodyText}
+                    />
                   </p>
                 ) : null}
                 {String(lp?.homework || "").trim() ? (
                   <p className={bodyText}>
                     <span className="font-semibold text-slate-500">Homework: </span>
-                    {String(lp.homework).trim()}
+                    <LinkifiedText text={String(lp.homework).trim()} className={bodyText} />
                   </p>
                 ) : null}
                 {String(lp?.teacherNote || "").trim() ? (
@@ -2642,18 +3205,51 @@ function LessonSlotRow({
                       Private note
                     </p>
                     <p className={cn(bodyText, "whitespace-pre-wrap text-amber-950/90")}>
-                      {String(lp.teacherNote).trim()}
+                      <LinkifiedText
+                        text={String(lp.teacherNote).trim()}
+                        className={cn(bodyText, "text-amber-950/90")}
+                      />
                     </p>
                   </div>
                 ) : null}
-              </div>
-            ) : null}
           </div>
         ) : null}
       </div>
     </div>
     {plusMenuPortal}
+    <ScheduleCellModal
+      variant={cellModal}
+      anchorDayName={dayName}
+      onClose={() => setCellModal(null)}
+      onAdd={(payload) => {
+        insertCellsAtAnchor({
+          anchorDayName: dayName,
+          anchorItemId: lesson.id,
+          position: payload.position,
+          kind: payload.kind,
+          targetDays: payload.targetDays,
+        });
+        setCellModal(null);
+      }}
+      onRemove={(payload) => {
+        removeCellsAtAnchor({
+          anchorDayName: dayName,
+          anchorItemId: lesson.id,
+          targetDays: payload.targetDays,
+        });
+        setCellModal(null);
+      }}
+    />
     </>
+  );
+}
+
+function PlanningLinkPreview({ text }) {
+  if (!textContainsHttpUrl(text)) return null;
+  return (
+    <div className="mt-1 rounded-md border border-sky-100/90 bg-sky-50/50 px-2 py-1.5 text-[10px] leading-snug text-slate-700">
+      <LinkifiedText text={text} className="text-[10px] leading-snug text-slate-800" />
+    </div>
   );
 }
 
@@ -2754,10 +3350,11 @@ function SlotLessonDetailOverlay({
               value={headerLabelDraft}
               onChange={(e) => setHeaderLabelDraft(e.target.value)}
               onFocus={(e) => e.target.select()}
-              placeholder={isDemoPlaceholderSlot ? DEFAULT_LESSON_NOTE_PLACEHOLDER : ""}
-              className="mt-0.5 w-full min-w-0 truncate border-0 border-b border-transparent bg-transparent p-0 text-sm font-semibold text-slate-900 outline-none transition placeholder:text-slate-400/55 focus:border-slate-200"
+              placeholder={DEFAULT_CLASS_SUBJECT_PLACEHOLDER}
+              className="mt-0.5 w-full min-w-0 truncate border-0 border-b border-transparent bg-transparent p-0 text-sm font-semibold text-slate-900 outline-none transition placeholder:text-slate-400/70 focus:border-slate-200"
               aria-label="Lesson title"
             />
+            <PlanningLinkPreview text={headerLabelDraft} />
             {(room ?? "").trim() ? (
               <p className="mt-0.5 truncate text-[11px] font-medium text-slate-500">{room.trim()}</p>
             ) : null}
@@ -2803,6 +3400,7 @@ function SlotLessonDetailOverlay({
                 className={field}
                 placeholder="e.g. Fables — on the card below the line note"
               />
+              <PlanningLinkPreview text={lessonTopic} />
             </div>
             <div className="grid grid-cols-3 gap-2">
               <div>
@@ -2811,7 +3409,13 @@ function SlotLessonDetailOverlay({
               </div>
               <div>
                 <label className={lab}>Room</label>
-                <input type="text" value={room} onChange={(e) => setRoom(e.target.value)} className={field} />
+                <input
+                  type="text"
+                  value={room}
+                  onChange={(e) => setRoom(e.target.value)}
+                  placeholder={DEFAULT_ROOM_PLACEHOLDER}
+                  className={cn(field, "placeholder:text-slate-400/70")}
+                />
               </div>
               <div>
                 <label className={lab}>Mins</label>
@@ -2839,6 +3443,7 @@ function SlotLessonDetailOverlay({
                   "resize-y border-transparent bg-transparent text-sm leading-snug shadow-none ring-0 placeholder:text-slate-400/60 focus:border-slate-300/40"
                 )}
               />
+              <PlanningLinkPreview text={note} />
             </div>
 
             <div>
@@ -2849,42 +3454,49 @@ function SlotLessonDetailOverlay({
                 rows={2}
                 className={cn(field, "resize-y text-sm leading-snug")}
               />
+              <PlanningLinkPreview text={learningIntention} />
             </div>
 
             <div>
               <label className={lab}>Success criteria</label>
               <div className="space-y-1.5">
                 {successCriteria.map((row, i) => (
-                  <div key={i} className="flex gap-1.5">
-                    <input
-                      type="text"
-                      value={row}
-                      onChange={(e) =>
-                        setSuccessCriteria((prev) =>
-                          prev.map((t, j) => (j === i ? e.target.value : t))
-                        )
-                      }
-                      className={field}
-                      placeholder="Criterion"
-                    />
-                    {successCriteria.length > 1 ? (
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setSuccessCriteria((prev) => prev.filter((_, j) => j !== i))
+                  <div key={i}>
+                    <div className="flex gap-1.5">
+                      <input
+                        type="text"
+                        value={row}
+                        onChange={(e) =>
+                          setSuccessCriteria((prev) =>
+                            prev.map((t, j) => (j === i ? e.target.value : t))
+                          )
                         }
-                        className="shrink-0 rounded-md px-2 py-1 text-sm text-slate-400 hover:bg-red-50 hover:text-red-600"
-                        aria-label="Remove criterion"
-                      >
-                        ×
-                      </button>
-                    ) : null}
+                        className={field}
+                        placeholder="Criterion"
+                      />
+                      {successCriteria.length > 1 ? (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setSuccessCriteria((prev) => prev.filter((_, j) => j !== i))
+                          }
+                          className="shrink-0 rounded-md px-2 py-1 text-sm text-slate-400 hover:bg-red-50 hover:text-red-600"
+                          aria-label="Remove criterion"
+                        >
+                          ×
+                        </button>
+                      ) : null}
+                    </div>
+                    <PlanningLinkPreview text={row} />
                   </div>
                 ))}
               </div>
               <button
                 type="button"
-                onClick={() => setSuccessCriteria((prev) => [...prev, ""])}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setSuccessCriteria((prev) => [...prev, ""]);
+                }}
                 className="mt-1.5 text-[11px] font-medium text-slate-600 hover:text-slate-900"
               >
                 + Add criterion
@@ -2917,17 +3529,20 @@ function SlotLessonDetailOverlay({
                           <span className="text-[11px] font-medium leading-snug text-slate-600">{row.phase}</span>
                         )}
                       </div>
-                      <input
-                        type="text"
-                        value={row.text}
-                        onChange={(e) =>
-                          setSequence((prev) =>
-                            prev.map((s, j) => (j === i ? { ...s, text: e.target.value } : s))
-                          )
-                        }
-                        className={field}
-                        placeholder="What happens in this part?"
-                      />
+                      <div className="min-w-0 flex-1">
+                        <input
+                          type="text"
+                          value={row.text}
+                          onChange={(e) =>
+                            setSequence((prev) =>
+                              prev.map((s, j) => (j === i ? { ...s, text: e.target.value } : s))
+                            )
+                          }
+                          className={field}
+                          placeholder="What happens in this part?"
+                        />
+                        <PlanningLinkPreview text={row.text} />
+                      </div>
                       {sequence.length > 1 ? (
                         <button
                           type="button"
@@ -2944,7 +3559,10 @@ function SlotLessonDetailOverlay({
               </div>
               <button
                 type="button"
-                onClick={() => setSequence((prev) => [...prev, { phase: "", text: "" }])}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setSequence((prev) => [...prev, { phase: "", text: "" }]);
+                }}
                 className="mt-1.5 text-[11px] font-medium text-slate-600 hover:text-slate-900"
               >
                 + Add step
@@ -2960,6 +3578,7 @@ function SlotLessonDetailOverlay({
                 className={cn(field, "resize-y text-sm leading-snug")}
                 placeholder="Slides, handouts, links…"
               />
+              <PlanningLinkPreview text={resources} />
             </div>
 
             <div>
@@ -2970,6 +3589,7 @@ function SlotLessonDetailOverlay({
                 rows={2}
                 className={cn(field, "resize-y text-sm leading-snug")}
               />
+              <PlanningLinkPreview text={homework} />
             </div>
 
             <div className="rounded-lg border border-amber-200/70 bg-amber-50/40 px-2.5 py-2">
@@ -2981,6 +3601,7 @@ function SlotLessonDetailOverlay({
                 className={cn(field, "mt-1 resize-y border-amber-200/80 bg-white text-sm leading-snug")}
                 placeholder="Only you — not shown on the timetable card"
               />
+              <PlanningLinkPreview text={teacherNote} />
             </div>
 
             <button
@@ -3042,72 +3663,215 @@ function SlotLessonDetailOverlay({
   );
 }
 
-function DutyRow({ duty, editingField, editingValue, onStartEdit, onEditChange, onEditSave, onEditCancel }) {
+function DutyRow({
+  duty,
+  editingField,
+  editingValue,
+  onStartEdit,
+  onEditChange,
+  onEditSave,
+  onEditCancel,
+  dayName,
+  insertCellsAtAnchor,
+  removeCellsAtAnchor,
+}) {
   const isFilled = duty.label.trim() !== "";
   const isEditingLabel = editingField?.itemId === duty.id && editingField?.field === "label";
   const isEditingTime = editingField?.itemId === duty.id && editingField?.field === "time";
+  const [plusMenuAnchor, setPlusMenuAnchor] = useState(null);
+  const [cellModal, setCellModal] = useState(null);
+  const plusBtnRef = useRef(null);
+
+  useEffect(() => {
+    if (!plusMenuAnchor) return;
+    const onKey = (e) => {
+      if (e.key === "Escape") setPlusMenuAnchor(null);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [plusMenuAnchor]);
+
+  function closePlusMenu() {
+    setPlusMenuAnchor(null);
+  }
+
+  function togglePlusMenu() {
+    if (plusMenuAnchor) {
+      closePlusMenu();
+      return;
+    }
+    const r = plusBtnRef.current?.getBoundingClientRect();
+    if (r) setPlusMenuAnchor({ left: r.left, right: r.right, bottom: r.bottom, top: r.top });
+  }
+
+  const panelW = 200;
+  const dutyPlusMenuPortal =
+    insertCellsAtAnchor &&
+    removeCellsAtAnchor &&
+    typeof document !== "undefined" &&
+    plusMenuAnchor
+      ? createPortal(
+          <>
+            <div
+              className="fixed inset-0 z-[100]"
+              aria-hidden
+              onClick={(e) => {
+                e.stopPropagation();
+                closePlusMenu();
+              }}
+            />
+            <div
+              role="menu"
+              aria-label="Duty row actions"
+              className="fixed z-[101] w-[min(14rem,calc(100vw-16px))] overflow-hidden rounded-lg border border-slate-200/90 bg-white py-1 shadow-lg"
+              style={{
+                top: plusMenuAnchor.bottom + 6,
+                left: Math.max(
+                  8,
+                  Math.min(
+                    plusMenuAnchor.left,
+                    (typeof window !== "undefined" ? window.innerWidth : 400) - 8 - panelW
+                  )
+                ),
+              }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <p className="px-3 pb-1 pt-1 text-[9px] font-semibold uppercase tracking-wide text-slate-400">
+                Cell
+              </p>
+              <button
+                type="button"
+                role="menuitem"
+                className="flex w-full px-3 py-2 text-left text-[11px] font-medium text-slate-700 transition hover:bg-slate-50"
+                onClick={() => {
+                  closePlusMenu();
+                  setCellModal("add");
+                }}
+              >
+                Add cell…
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                className="flex w-full px-3 py-2 text-left text-[11px] font-medium text-slate-700 transition hover:bg-slate-50"
+                onClick={() => {
+                  closePlusMenu();
+                  setCellModal("remove");
+                }}
+              >
+                Remove cell…
+              </button>
+            </div>
+          </>,
+          document.body
+        )
+      : null;
 
   return (
-    <div 
-      className={cn(
-        "flex w-full items-center overflow-hidden whitespace-nowrap rounded-[5px] border px-2 py-1 text-[10px] leading-4 transition",
-        isFilled 
-          ? "border-red-200/80 bg-red-50/70 text-red-700" 
-          : "border-slate-200 bg-slate-50 text-slate-500 hover:bg-slate-100"
-      )}
-    >
-      {isFilled ? (
-        <>
-          <span className="shrink-0 text-[10px] font-semibold text-red-700">DUTY</span>
-          <span className="mx-1 shrink-0 text-red-300">·</span>
-        </>
-      ) : null}
-      {isEditingLabel ? (
-        <input
-          autoFocus
-          value={editingValue}
-          onChange={(e) => onEditChange(e.target.value)}
-          onBlur={onEditSave}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") onEditSave();
-            if (e.key === "Escape") onEditCancel();
-          }}
-          className="min-w-0 flex-1 rounded-[3px] border border-slate-300 bg-white px-1 text-[10px] text-slate-900 outline-none"
-        />
-      ) : (
-        <button
-          onClick={() => onStartEdit(duty.id, "label", duty.label, "duty")}
-          className={cn(
-            "truncate font-medium flex-1 text-left", 
-            isFilled ? "hover:text-red-900" : "hover:text-slate-700",
-            !isFilled && !duty.label && "italic opacity-60"
-          )}
-        >
-          {duty.label || "Click to add duty..."}
-        </button>
-      )}
-      <span className={cn("mx-1 shrink-0", isFilled ? "text-red-300" : "text-slate-300")}>·</span>
-      {isEditingTime ? (
-        <input
-          autoFocus
-          value={editingValue}
-          onChange={(e) => onEditChange(e.target.value)}
-          onBlur={onEditSave}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") onEditSave();
-            if (e.key === "Escape") onEditCancel();
-          }}
-          className="w-12 shrink-0 rounded-[3px] border border-slate-300 bg-white px-1 text-[10px] text-slate-900 outline-none"
-        />
-      ) : (
-        <button
-          onClick={() => onStartEdit(duty.id, "time", duty.time, "duty")}
-          className={cn("shrink-0", isFilled ? "hover:text-red-900" : "hover:text-slate-700")}
-        >
-          {duty.time || "Time"}
-        </button>
-      )}
-    </div>
+    <>
+      <div
+        className={cn(
+          "flex w-full items-center overflow-hidden whitespace-nowrap rounded-[5px] border px-2 py-1 text-[10px] leading-4 transition",
+          isFilled
+            ? "border-red-200/80 bg-red-50/70 text-red-700"
+            : "border-slate-200 bg-slate-50 text-slate-500 hover:bg-slate-100"
+        )}
+      >
+        {isFilled ? (
+          <>
+            <span className="shrink-0 text-[10px] font-semibold text-red-700">DUTY</span>
+            <span className="mx-1 shrink-0 text-red-300">·</span>
+          </>
+        ) : null}
+        {isEditingLabel ? (
+          <input
+            autoFocus
+            value={editingValue}
+            onChange={(e) => onEditChange(e.target.value)}
+            onBlur={onEditSave}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") onEditSave();
+              if (e.key === "Escape") onEditCancel();
+            }}
+            className="min-w-0 flex-1 rounded-[3px] border border-slate-300 bg-white px-1 text-[10px] text-slate-900 outline-none"
+          />
+        ) : (
+          <button
+            type="button"
+            onClick={() => onStartEdit(duty.id, "label", duty.label, "duty")}
+            className={cn(
+              "min-w-0 flex-1 truncate text-left font-medium",
+              isFilled ? "hover:text-red-900" : "hover:text-slate-700",
+              !isFilled && !duty.label && "italic opacity-60"
+            )}
+          >
+            {duty.label || "Click to add duty..."}
+          </button>
+        )}
+        <span className={cn("mx-1 shrink-0", isFilled ? "text-red-300" : "text-slate-300")}>·</span>
+        {isEditingTime ? (
+          <input
+            autoFocus
+            value={editingValue}
+            onChange={(e) => onEditChange(e.target.value)}
+            onBlur={onEditSave}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") onEditSave();
+              if (e.key === "Escape") onEditCancel();
+            }}
+            className="w-12 shrink-0 rounded-[3px] border border-slate-300 bg-white px-1 text-[10px] text-slate-900 outline-none"
+          />
+        ) : (
+          <button
+            type="button"
+            onClick={() => onStartEdit(duty.id, "time", duty.time, "duty")}
+            className={cn("shrink-0", isFilled ? "hover:text-red-900" : "hover:text-slate-700")}
+          >
+            {duty.time || "Time"}
+          </button>
+        )}
+        {insertCellsAtAnchor && removeCellsAtAnchor ? (
+          <button
+            ref={plusBtnRef}
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              togglePlusMenu();
+            }}
+            className="ml-1 flex h-6 w-5 shrink-0 items-center justify-center rounded text-slate-400/90 transition hover:bg-slate-200/80 hover:text-slate-600"
+            aria-label="Row actions"
+            aria-expanded={Boolean(plusMenuAnchor)}
+            aria-haspopup="menu"
+          >
+            <Plus className="h-3.5 w-3.5" />
+          </button>
+        ) : null}
+      </div>
+      {dutyPlusMenuPortal}
+      <ScheduleCellModal
+        variant={cellModal}
+        anchorDayName={dayName}
+        onClose={() => setCellModal(null)}
+        onAdd={(payload) => {
+          insertCellsAtAnchor({
+            anchorDayName: dayName,
+            anchorItemId: duty.id,
+            position: payload.position,
+            kind: payload.kind,
+            targetDays: payload.targetDays,
+          });
+          setCellModal(null);
+        }}
+        onRemove={(payload) => {
+          removeCellsAtAnchor({
+            anchorDayName: dayName,
+            anchorItemId: duty.id,
+            targetDays: payload.targetDays,
+          });
+          setCellModal(null);
+        }}
+      />
+    </>
   );
 }
 
@@ -3275,6 +4039,36 @@ function stripWednesdayLessonsToTemplatePeriods(timetable) {
 
 function emptyWeekLessonOverlays() {
   return Object.fromEntries(TERM_WEEKS.map((w) => [w, {}]));
+}
+
+/**
+ * Full reset: keep period times & row layout; clear lesson title/room/class and duty labels.
+ * Demo template subjects/rooms live in the base scaffold — mergePersistedAppState(null) alone would keep them.
+ */
+function blankTimetableForFullResetFromTemplate(timetable) {
+  return normalizeTimetableForStorage(
+    timetable.map((day) => ({
+      ...day,
+      items: day.items.map((item) => {
+        if (item.type === "duty") {
+          return { id: item.id, type: "duty", label: "", time: item.time ?? "" };
+        }
+        if (item.type === "lesson") {
+          const b = {
+            id: item.id,
+            type: "lesson",
+            period: item.period,
+            time: item.time,
+            subject: "",
+            room: "",
+          };
+          if (item.accent !== undefined && item.accent !== null) b.accent = item.accent;
+          return b;
+        }
+        return cloneTimetable(item);
+      }),
+    }))
+  );
 }
 
 /** Allowed fields on the shared base timetable for a lesson (no notes / plans / weekly flags). */
@@ -3691,14 +4485,42 @@ function normalizeMonthViewDayNotes(raw) {
   return out;
 }
 
+function normalizeStudentNotes(raw) {
+  if (!Array.isArray(raw)) return [];
+  const out = [];
+  for (let i = 0; i < raw.length; i += 1) {
+    const item = raw[i];
+    if (!item || typeof item !== "object") continue;
+    const studentName = String(item.studentName ?? "").trim().slice(0, 120);
+    const classLabel = String(item.classLabel ?? "").trim().slice(0, 160);
+    const note = String(item.note ?? "").trim().slice(0, 4000);
+    if (!studentName || !classLabel || !note) continue;
+    const createdAt = typeof item.createdAt === "string" && item.createdAt ? item.createdAt : "";
+    out.push({
+      id: typeof item.id === "string" && item.id ? item.id : `sn-${i + 1}`,
+      studentName,
+      classLabel,
+      quickChoice: typeof item.quickChoice === "string" ? item.quickChoice.slice(0, 80) : "",
+      note,
+      createdAt,
+      week: typeof item.week === "string" ? item.week : "",
+      day: typeof item.day === "string" ? item.day : "",
+      period: typeof item.period === "string" ? item.period : "",
+    });
+  }
+  return out;
+}
+
 function mergePersistedAppState(raw) {
+  const defaultWeek1StartDate = isoDateFromLocalDate(schoolWeekMonday(new Date()));
+  const today = new Date();
   const defaults = {
     sidebarCollapsed: false,
     focusMode: false,
     calendarReminders: defaultCalendarReminders,
     viewMode: "week",
     selectedDay: "Monday",
-    selectedWeek: "Week 9",
+    selectedWeek: weekLabelForDate(defaultWeek1StartDate),
     timerSeconds: 12 * 60,
     editingTimer: false,
     timerInput: "12:00",
@@ -3709,13 +4531,15 @@ function mergePersistedAppState(raw) {
     expandedDays: defaultExpandedDays(),
     fontScale: 1,
     searchQuery: "",
-    calendarMonth: { year: 2026, month: 2 },
+    calendarMonth: { year: today.getFullYear(), month: today.getMonth() },
     toolShortcuts: [],
     dayCountdownTarget: "2026-12-20",
     dayCountdownEventLabel: "Christmas",
     celebrations: [],
     bellReminderSettings: defaultBellReminderSettings(),
     monthViewDayNotes: {},
+    studentNotes: [],
+    week1StartDate: defaultWeek1StartDate,
   };
 
   if (!raw) {
@@ -3819,6 +4643,10 @@ function mergePersistedAppState(raw) {
   if (!TERM_WEEKS.includes(selectedWeek)) {
     selectedWeek = defaults.selectedWeek;
   }
+  const parsedWeek1Start = parseIsoToLocalDate(raw.week1StartDate);
+  const week1StartDate = parsedWeek1Start
+    ? isoDateFromLocalDate(parsedWeek1Start)
+    : defaults.week1StartDate;
 
   const { baseTimetable, weekLessonOverlays } = migratePersistedToBaseAndWeekOverlays(
     raw,
@@ -3884,6 +4712,7 @@ function mergePersistedAppState(raw) {
           : defaults.viewMode,
     selectedDay,
     selectedWeek,
+    week1StartDate,
     timerSeconds,
     editingTimer: typeof raw.editingTimer === "boolean" ? raw.editingTimer : defaults.editingTimer,
     timerInput: typeof raw.timerInput === "string" ? raw.timerInput : defaults.timerInput,
@@ -3910,6 +4739,7 @@ function mergePersistedAppState(raw) {
     celebrations: normalizeCelebrations(raw.celebrations ?? defaults.celebrations),
     bellReminderSettings: normalizeBellReminderSettings(raw.bellReminderSettings ?? defaults.bellReminderSettings),
     monthViewDayNotes: normalizeMonthViewDayNotes(raw.monthViewDayNotes ?? defaults.monthViewDayNotes),
+    studentNotes: normalizeStudentNotes(raw.studentNotes ?? defaults.studentNotes),
   };
 }
 
@@ -4114,6 +4944,7 @@ export default function App() {
   const [focusMode, setFocusMode] = useState(initialAppState.focusMode);
   const [calendarReminders, setCalendarReminders] = useState(initialAppState.calendarReminders);
   const [monthViewDayNotes, setMonthViewDayNotes] = useState(initialAppState.monthViewDayNotes);
+  const [studentNotes, setStudentNotes] = useState(initialAppState.studentNotes);
   const [selectedCalendarDate, setSelectedCalendarDate] = useState(null);
   const [selectedCalendarReminderId, setSelectedCalendarReminderId] = useState(null);
   const [calendarDraft, setCalendarDraft] = useState("");
@@ -4122,6 +4953,7 @@ export default function App() {
   const [viewMode, setViewMode] = useState(initialAppState.viewMode);
   const [selectedDay, setSelectedDay] = useState(initialAppState.selectedDay);
   const [selectedWeek, setSelectedWeek] = useState(initialAppState.selectedWeek);
+  const [week1StartDate, setWeek1StartDate] = useState(initialAppState.week1StartDate);
   const [timerSeconds, setTimerSeconds] = useState(initialAppState.timerSeconds);
   const [editingTimer, setEditingTimer] = useState(initialAppState.editingTimer);
   const [timerInput, setTimerInput] = useState(initialAppState.timerInput);
@@ -4144,6 +4976,52 @@ export default function App() {
     setBaseTimetable(extractBaseTimetableFromMerged(next));
     setWeekLessonOverlays((prev) => ({ ...prev, [sw]: extractWeeklyOverlayFromMerged(next) }));
   }, []);
+
+  const insertCellsAtAnchor = useCallback(
+    ({ anchorDayName, anchorItemId, position, kind, targetDays }) => {
+      const days = [...new Set((targetDays ?? []).filter((d) => TT_WEEKDAY_ORDER.includes(d)))];
+      if (days.length === 0) return;
+      applyTimetableUpdate((prev) => {
+        const sourceDay = prev.find((d) => d.day === anchorDayName);
+        if (!sourceDay) return prev;
+        const idx = sourceDay.items.findIndex((i) => i.id === anchorItemId);
+        if (idx === -1) return prev;
+        const daySet = new Set(days);
+        return prev.map((day) => {
+          if (!daySet.has(day.day)) return day;
+          const items = [...day.items];
+          let insertAt = position === "above" ? idx : idx + 1;
+          insertAt = Math.max(0, Math.min(insertAt, items.length));
+          const newItem = kind === "duty" ? newDutySlot() : newLessonSlotForDay(day.day, day.items);
+          items.splice(insertAt, 0, newItem);
+          return { ...day, items };
+        });
+      });
+    },
+    [applyTimetableUpdate]
+  );
+
+  const removeCellsAtAnchor = useCallback(
+    ({ anchorDayName, anchorItemId, targetDays }) => {
+      const days = [...new Set((targetDays ?? []).filter((d) => TT_WEEKDAY_ORDER.includes(d)))];
+      if (days.length === 0) return;
+      applyTimetableUpdate((prev) => {
+        const sourceDay = prev.find((d) => d.day === anchorDayName);
+        if (!sourceDay) return prev;
+        const idx = sourceDay.items.findIndex((i) => i.id === anchorItemId);
+        if (idx === -1) return prev;
+        const daySet = new Set(days);
+        return prev.map((day) => {
+          if (!daySet.has(day.day)) return day;
+          const items = [...day.items];
+          if (idx >= items.length) return day;
+          items.splice(idx, 1);
+          return { ...day, items };
+        });
+      });
+    },
+    [applyTimetableUpdate]
+  );
 
   const timetable = useMemo(
     () =>
@@ -4203,6 +5081,8 @@ export default function App() {
   const accentPopoverRef = useRef(null);
   const [roomApplyPrompt, setRoomApplyPrompt] = useState(null);
   const roomApplyPopoverRef = useRef(null);
+  const [subjectApplyPrompt, setSubjectApplyPrompt] = useState(null);
+  const subjectApplyPopoverRef = useRef(null);
   const [weekToolsMenuOpen, setWeekToolsMenuOpen] = useState(false);
   const weekToolsMenuRef = useRef(null);
   const [utilitiesMenuOpen, setUtilitiesMenuOpen] = useState(false);
@@ -4238,6 +5118,22 @@ export default function App() {
   const [startNewTermModalOpen, setStartNewTermModalOpen] = useState(false);
   const [startNewTermChoice, setStartNewTermChoice] = useState("fresh");
   const [newTermReadyToast, setNewTermReadyToast] = useState(false);
+  const [studentNoteEntryDialog, setStudentNoteEntryDialog] = useState(null);
+  const [studentNoteStudentDraft, setStudentNoteStudentDraft] = useState("");
+  const [studentNoteQuickChoiceDraft, setStudentNoteQuickChoiceDraft] = useState("");
+  const [studentNoteTextDraft, setStudentNoteTextDraft] = useState("");
+  const [studentNotesViewerOpen, setStudentNotesViewerOpen] = useState(false);
+  const [studentNotesViewerScope, setStudentNotesViewerScope] = useState("individual");
+  const [studentNotesSearch, setStudentNotesSearch] = useState("");
+  const [studentNotesClassFilter, setStudentNotesClassFilter] = useState("");
+  const [weekDateLockDialogOpen, setWeekDateLockDialogOpen] = useState(false);
+  const [weekDateLockWeek, setWeekDateLockWeek] = useState(initialAppState.selectedWeek);
+  const [weekDateLockMondayIso, setWeekDateLockMondayIso] = useState(isoDateFromLocalDate(schoolWeekMonday(new Date())));
+  const [lessonExportDialogOpen, setLessonExportDialogOpen] = useState(false);
+  const [lessonExportScope, setLessonExportScope] = useState("week");
+  const [lessonExportDay, setLessonExportDay] = useState("Monday");
+  const [lessonExportLessonId, setLessonExportLessonId] = useState("");
+  const [lessonExportFeedback, setLessonExportFeedback] = useState("");
   const [archiveModalOpen, setArchiveModalOpen] = useState(false);
   const [archiveDraftLabel, setArchiveDraftLabel] = useState("");
   const [archiveSaveConfirm, setArchiveSaveConfirm] = useState(false);
@@ -4305,7 +5201,7 @@ export default function App() {
   const upcomingItems = useMemo(() => {
     const cal = calendarReminders.map((item) => ({
       ...item,
-      status: getReminderStatus(item.date),
+      status: getReminderStatus(Number(item.date), Number(item.month), Number(item.year)),
       dayName: getDayNameFromDate(item.date, item.month, item.year),
       sortValue: new Date(item.year, item.month, item.date).getTime(),
     }));
@@ -4321,7 +5217,7 @@ export default function App() {
         title: c.name.trim() || "Celebration",
         kind: "celebration",
         celebrationYearly: c.yearly !== false,
-        status: getReminderStatus(d),
+        status: getReminderStatus(Number(d), Number(monthIndex), Number(y)),
         dayName: getDayNameFromDate(d, monthIndex, y),
         sortValue,
       };
@@ -4422,6 +5318,53 @@ export default function App() {
     );
   }, [timetable, unitStore]);
 
+  const lessonExportDayOptions = useMemo(
+    () =>
+      TT_WEEKDAY_ORDER.map((day) => {
+        const dayRow = timetable.find((d) => d.day === day);
+        const lessons = (dayRow?.items ?? []).filter((item) => item.type === "lesson");
+        return { day, lessons };
+      }),
+    [timetable]
+  );
+
+  const lessonExportLessonOptions = useMemo(() => {
+    const row = lessonExportDayOptions.find((d) => d.day === lessonExportDay);
+    return row?.lessons ?? [];
+  }, [lessonExportDayOptions, lessonExportDay]);
+
+  const selectedWeekDateLabelsByDay = useMemo(() => {
+    const out = {};
+    for (const day of TT_WEEKDAY_ORDER) {
+      const d = weekDayDateFor(week1StartDate, selectedWeek, day);
+      out[day] = d
+        ? `${d.getDate()} ${d.toLocaleDateString("en-AU", { month: "short" })}`
+        : "";
+    }
+    return out;
+  }, [week1StartDate, selectedWeek]);
+
+  const studentNoteClassOptions = useMemo(() => {
+    const set = new Set();
+    for (const n of studentNotes) {
+      const label = String(n.classLabel ?? "").trim();
+      if (label) set.add(label);
+    }
+    return [...set].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" }));
+  }, [studentNotes]);
+
+  const filteredStudentNotes = useMemo(() => {
+    const q = studentNotesSearch.trim().toLowerCase();
+    return studentNotes.filter((n) => {
+      if (studentNotesViewerScope === "class" && studentNotesClassFilter) {
+        if (n.classLabel !== studentNotesClassFilter) return false;
+      }
+      if (!q) return true;
+      const blob = `${n.studentName} ${n.classLabel} ${n.note} ${n.week} ${n.day} ${n.period}`.toLowerCase();
+      return blob.includes(q);
+    });
+  }, [studentNotes, studentNotesSearch, studentNotesViewerScope, studentNotesClassFilter]);
+
   useEffect(() => {
     setBaseTimetable((prev) =>
       stripWeeklyFieldsFromBaseTimetable(stripWednesdayLessonsToTemplatePeriods(prev))
@@ -4516,6 +5459,52 @@ export default function App() {
   }, [utilityExportModalOpen, utilityImportModalOpen, utilityImportReplaceConfirm]);
 
   useEffect(() => {
+    if (!studentNoteEntryDialog && !studentNotesViewerOpen) return;
+    const onKey = (e) => {
+      if (e.key !== "Escape") return;
+      if (studentNoteEntryDialog) {
+        closeStudentNoteEntryDialog();
+        return;
+      }
+      setStudentNotesViewerOpen(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [studentNoteEntryDialog, studentNotesViewerOpen]);
+
+  useEffect(() => {
+    if (!lessonExportDialogOpen) return;
+    const onKey = (e) => {
+      if (e.key !== "Escape") return;
+      setLessonExportDialogOpen(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [lessonExportDialogOpen]);
+
+  useEffect(() => {
+    if (!weekDateLockDialogOpen) return;
+    const onKey = (e) => {
+      if (e.key !== "Escape") return;
+      setWeekDateLockDialogOpen(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [weekDateLockDialogOpen]);
+
+  useEffect(() => {
+    if (!lessonExportDayOptions.some((d) => d.day === lessonExportDay)) {
+      setLessonExportDay(TT_WEEKDAY_ORDER[0] ?? "Monday");
+    }
+  }, [lessonExportDayOptions, lessonExportDay]);
+
+  useEffect(() => {
+    if (lessonExportScope !== "lesson") return;
+    if (lessonExportLessonOptions.some((l) => l.id === lessonExportLessonId)) return;
+    setLessonExportLessonId(lessonExportLessonOptions[0]?.id ?? "");
+  }, [lessonExportScope, lessonExportLessonOptions, lessonExportLessonId]);
+
+  useEffect(() => {
     if (!accentPicker) return;
     const onKey = (e) => {
       if (e.key === "Escape") setAccentPicker(null);
@@ -4553,6 +5542,36 @@ export default function App() {
     document.addEventListener("pointerdown", onPointerDown, true);
     return () => document.removeEventListener("pointerdown", onPointerDown, true);
   }, [roomApplyPrompt]);
+
+  useEffect(() => {
+    if (!subjectApplyPrompt) return;
+    const onKey = (e) => {
+      if (e.key === "Escape") setSubjectApplyPrompt(null);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [subjectApplyPrompt]);
+
+  useEffect(() => {
+    if (!subjectApplyPrompt) return;
+    const onPointerDown = (e) => {
+      if (subjectApplyPopoverRef.current?.contains(e.target)) return;
+      setSubjectApplyPrompt(null);
+    };
+    document.addEventListener("pointerdown", onPointerDown, true);
+    return () => document.removeEventListener("pointerdown", onPointerDown, true);
+  }, [subjectApplyPrompt]);
+
+  useEffect(() => {
+    if (studentNotesViewerScope !== "class") return;
+    if (studentNoteClassOptions.length === 0) {
+      if (studentNotesClassFilter) setStudentNotesClassFilter("");
+      return;
+    }
+    if (!studentNoteClassOptions.includes(studentNotesClassFilter)) {
+      setStudentNotesClassFilter(studentNoteClassOptions[0]);
+    }
+  }, [studentNotesViewerScope, studentNoteClassOptions, studentNotesClassFilter]);
 
   useEffect(() => {
     if (!weekToolsMenuOpen) return;
@@ -4811,6 +5830,13 @@ export default function App() {
   }
 
   useEffect(() => {
+    try {
+      if (typeof window !== "undefined" && sessionStorage.getItem("teacher-studio-new-term-ready")) {
+        return;
+      }
+    } catch {
+      /* ignore */
+    }
     const payload = {
       v: 1,
       sidebarCollapsed,
@@ -4819,6 +5845,7 @@ export default function App() {
       viewMode,
       selectedDay,
       selectedWeek,
+      week1StartDate,
       timerSeconds,
       editingTimer,
       timerInput,
@@ -4838,6 +5865,7 @@ export default function App() {
       celebrations,
       bellReminderSettings: normalizeBellReminderSettings(bellReminderSettings),
       monthViewDayNotes,
+      studentNotes,
     };
     try {
       window.localStorage.setItem(TEACHER_STUDIO_STORAGE_KEY, JSON.stringify(payload));
@@ -4852,6 +5880,7 @@ export default function App() {
     viewMode,
     selectedDay,
     selectedWeek,
+    week1StartDate,
     timerSeconds,
     editingTimer,
     timerInput,
@@ -4871,6 +5900,7 @@ export default function App() {
     celebrations,
     bellReminderSettings,
     monthViewDayNotes,
+    studentNotes,
   ]);
 
   const handleMonthViewDayNoteCommit = useCallback((noteKey, text) => {
@@ -4934,6 +5964,51 @@ export default function App() {
         ),
       }))
     );
+  }
+
+  function commitLessonHeaderLabel(lessonId, text) {
+    applyTimetableUpdate((prev) =>
+      prev.map((day) => ({
+        ...day,
+        items: day.items.map((item) =>
+          item.id === lessonId && item.type === "lesson"
+            ? { ...item, subject: text, classGroup: "" }
+            : item
+        ),
+      }))
+    );
+  }
+
+  function applySubjectToAllLessonsWithKey(oldSubject, newSubject) {
+    const key = lessonSubjectKey(oldSubject);
+    applyTimetableUpdate((prev) =>
+      prev.map((day) => ({
+        ...day,
+        items: day.items.map((item) =>
+          item.type === "lesson" && lessonSubjectKey(item.subject) === key
+            ? { ...item, subject: newSubject, classGroup: "" }
+            : item
+        ),
+      }))
+    );
+  }
+
+  /** Returns true if a picker was opened (caller should skip duplicate blur handling). */
+  function onLessonHeaderCommitAttempt(lessonId, newSubjectRaw, opts = {}) {
+    const lesson = findLessonInTimetable(timetable, lessonId);
+    if (!lesson) return false;
+    const trimmed = String(newSubjectRaw ?? "").trim();
+    const nextVal = trimmed || "—";
+    const prevVal = (lesson.subject ?? "").trim() || "—";
+    if (prevVal === nextVal) return false;
+
+    const openPicker = Boolean(opts?.openPicker);
+    if (openPicker && lessonSubjectKey(nextVal) !== lessonSubjectKey(lesson.subject)) {
+      setSubjectApplyPrompt({ lessonId, oldSubject: lesson.subject, newSubject: nextVal });
+      return true;
+    }
+    commitLessonHeaderLabel(lessonId, nextVal);
+    return false;
   }
 
   function applyLessonDraftToSlot(draft) {
@@ -5033,6 +6108,32 @@ export default function App() {
         items: day.items.map((item) =>
           item.type === "lesson" && lessonSubjectKey(item.subject) === key
             ? { ...item, room }
+            : item
+        ),
+      }))
+    );
+  }
+
+  function applyRoomToLessonIds(lessonIds, room) {
+    const idSet = new Set(lessonIds);
+    applyTimetableUpdate((prev) =>
+      prev.map((day) => ({
+        ...day,
+        items: day.items.map((item) =>
+          item.type === "lesson" && idSet.has(item.id) ? { ...item, room } : item
+        ),
+      }))
+    );
+  }
+
+  function applySubjectToLessonIds(lessonIds, newSubject) {
+    const idSet = new Set(lessonIds);
+    applyTimetableUpdate((prev) =>
+      prev.map((day) => ({
+        ...day,
+        items: day.items.map((item) =>
+          item.type === "lesson" && idSet.has(item.id)
+            ? { ...item, subject: newSubject, classGroup: "" }
             : item
         ),
       }))
@@ -5355,8 +6456,247 @@ export default function App() {
     setStartNewTermModalOpen(false);
   }
 
+  function openStudentNoteEntryForLesson(lesson, dayName) {
+    const classTitle = lessonSlotDisplayTitle(lesson);
+    const classLabel =
+      classTitle && classTitle !== "—"
+        ? classTitle
+        : (lesson?.subject ?? "").trim() || "Unassigned class";
+    setStudentNoteEntryDialog({
+      lessonId: lesson.id,
+      classLabel,
+      day: dayName,
+      period: String(lesson?.period ?? "").trim(),
+      week: selectedWeek,
+    });
+    setStudentNoteStudentDraft("");
+    setStudentNoteQuickChoiceDraft("");
+    setStudentNoteTextDraft("");
+  }
+
+  function closeStudentNoteEntryDialog() {
+    setStudentNoteEntryDialog(null);
+    setStudentNoteStudentDraft("");
+    setStudentNoteQuickChoiceDraft("");
+    setStudentNoteTextDraft("");
+  }
+
+  function saveStudentNoteEntry() {
+    if (!studentNoteEntryDialog) return;
+    const studentName = studentNoteStudentDraft.trim().slice(0, 120);
+    const note = studentNoteTextDraft.trim().slice(0, 4000);
+    if (!studentName || !note) return;
+    const entry = {
+      id: `sn-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+      studentName,
+      classLabel: studentNoteEntryDialog.classLabel,
+      quickChoice: studentNoteQuickChoiceDraft,
+      note,
+      createdAt: new Date().toISOString(),
+      week: studentNoteEntryDialog.week,
+      day: studentNoteEntryDialog.day,
+      period: studentNoteEntryDialog.period,
+    };
+    setStudentNotes((prev) => [entry, ...prev]);
+    closeStudentNoteEntryDialog();
+  }
+
+  function openStudentNotesFromUtilities() {
+    closeUtilitiesMenu();
+    setStudentNotesViewerOpen(true);
+    setStudentNotesSearch("");
+    setStudentNotesViewerScope("individual");
+    setStudentNotesClassFilter("");
+  }
+
+  function openWeekDatesFromUtilities() {
+    closeUtilitiesMenu();
+    const selectedMonday = weekDayDateFor(week1StartDate, selectedWeek, "Monday");
+    setWeekDateLockWeek(selectedWeek);
+    setWeekDateLockMondayIso(
+      isoDateFromLocalDate(selectedMonday ?? schoolWeekMonday(new Date()))
+    );
+    setWeekDateLockDialogOpen(true);
+  }
+
+  function closeWeekDatesDialog() {
+    setWeekDateLockDialogOpen(false);
+  }
+
+  function confirmWeekDatesLock() {
+    const picked = parseIsoToLocalDate(weekDateLockMondayIso);
+    if (!picked) {
+      window.alert("Choose a valid Monday date.");
+      return;
+    }
+    const monday = mondayOfLocalWeek(picked);
+    const idx = weekIndexFromLabel(weekDateLockWeek);
+    const week1 = new Date(monday);
+    week1.setDate(week1.getDate() - idx * 7);
+    const nextWeek1 = isoDateFromLocalDate(week1);
+    setWeek1StartDate(nextWeek1);
+    setSelectedWeek(weekDateLockWeek);
+    setSelectedDay("Monday");
+    setCalendarMonth({ year: monday.getFullYear(), month: monday.getMonth() });
+    setWeekDateLockDialogOpen(false);
+  }
+
+  function openLessonExportFromUtilities() {
+    closeUtilitiesMenu();
+    setLessonExportDialogOpen(true);
+    setLessonExportScope("week");
+    const firstDayWithLesson = lessonExportDayOptions.find((d) => d.lessons.length > 0)?.day;
+    setLessonExportDay(firstDayWithLesson ?? TT_WEEKDAY_ORDER[0] ?? "Monday");
+    setLessonExportLessonId("");
+    setLessonExportFeedback("");
+  }
+
+  function closeLessonExportDialog() {
+    setLessonExportDialogOpen(false);
+    setLessonExportFeedback("");
+  }
+
+  function normalizeLessonExportField(text) {
+    return String(text ?? "").trim();
+  }
+
+  function collectLessonsForExport() {
+    if (lessonExportScope === "week") {
+      return lessonExportDayOptions.map((d) => ({ day: d.day, lessons: d.lessons }));
+    }
+    if (lessonExportScope === "day") {
+      const row = lessonExportDayOptions.find((d) => d.day === lessonExportDay);
+      return [{ day: lessonExportDay, lessons: row?.lessons ?? [] }];
+    }
+    const row = lessonExportDayOptions.find((d) => d.day === lessonExportDay);
+    const picked = (row?.lessons ?? []).filter((l) => l.id === lessonExportLessonId);
+    return [{ day: lessonExportDay, lessons: picked }];
+  }
+
+  function formatLessonForExport(lesson) {
+    const label = lessonSlotDisplayTitle(lesson);
+    const room = normalizeLessonExportField(lesson?.room);
+    const note = normalizeLessonExportField(lesson?.note);
+    const lp = lesson?.lessonPlan ?? null;
+    const focus = normalizeLessonExportField(lp?.lessonTopic);
+    const intention = normalizeLessonExportField(lp?.learningIntention);
+    const success = Array.isArray(lp?.successCriteria)
+      ? lp.successCriteria.map((s) => normalizeLessonExportField(s)).filter(Boolean).join(" · ")
+      : "";
+    const sequence = Array.isArray(lp?.sequence)
+      ? lp.sequence.map((s) => normalizeLessonExportField(s?.text)).filter(Boolean).join(" | ")
+      : "";
+    return {
+      label: label === "—" ? "Unassigned class" : label,
+      period: normalizeLessonExportField(lesson?.period),
+      time: normalizeLessonExportField(lesson?.time),
+      room,
+      note,
+      focus,
+      intention,
+      success,
+      sequence,
+    };
+  }
+
+  function buildLessonExportPlainText() {
+    const grouped = collectLessonsForExport();
+    const total = grouped.reduce((n, g) => n + g.lessons.length, 0);
+    if (total === 0) return "";
+    const lines = [
+      `Teacher Studio lesson share (${selectedWeek})`,
+      `Scope: ${lessonExportScope === "week" ? "Week" : lessonExportScope === "day" ? "Day" : "Single lesson"}`,
+      "",
+    ];
+    grouped.forEach((g) => {
+      if (!g.lessons.length) return;
+      lines.push(`${g.day}`);
+      g.lessons.forEach((lesson) => {
+        const it = formatLessonForExport(lesson);
+        const when = [it.period && `P${it.period}`, it.time].filter(Boolean).join(" - ");
+        lines.push(`- ${when ? `${when}: ` : ""}${it.label}`);
+        if (it.room) lines.push(`  Room: ${it.room}`);
+        if (it.note) lines.push(`  Note: ${it.note}`);
+        if (it.focus) lines.push(`  Focus: ${it.focus}`);
+        if (it.intention) lines.push(`  Intention: ${it.intention}`);
+        if (it.success) lines.push(`  Success: ${it.success}`);
+        if (it.sequence) lines.push(`  Sequence: ${it.sequence}`);
+      });
+      lines.push("");
+    });
+    return lines.join("\n").trim();
+  }
+
+  function buildLessonExportMarkdown() {
+    const grouped = collectLessonsForExport();
+    const total = grouped.reduce((n, g) => n + g.lessons.length, 0);
+    if (total === 0) return "";
+    const lines = [
+      `# Teacher Studio Lesson Share`,
+      "",
+      `- Week: ${selectedWeek}`,
+      `- Scope: ${lessonExportScope === "week" ? "Week" : lessonExportScope === "day" ? "Day" : "Single lesson"}`,
+      "",
+    ];
+    grouped.forEach((g) => {
+      if (!g.lessons.length) return;
+      lines.push(`## ${g.day}`);
+      lines.push("");
+      g.lessons.forEach((lesson) => {
+        const it = formatLessonForExport(lesson);
+        const when = [it.period && `P${it.period}`, it.time].filter(Boolean).join(" - ");
+        lines.push(`### ${when ? `${when} - ` : ""}${it.label}`);
+        if (it.room) lines.push(`- Room: ${it.room}`);
+        if (it.note) lines.push(`- Note: ${it.note}`);
+        if (it.focus) lines.push(`- Focus: ${it.focus}`);
+        if (it.intention) lines.push(`- Intention: ${it.intention}`);
+        if (it.success) lines.push(`- Success: ${it.success}`);
+        if (it.sequence) lines.push(`- Sequence: ${it.sequence}`);
+        lines.push("");
+      });
+    });
+    return lines.join("\n").trim();
+  }
+
+  async function copyLessonExport(format) {
+    const text = format === "markdown" ? buildLessonExportMarkdown() : buildLessonExportPlainText();
+    if (!text) {
+      setLessonExportFeedback("No lessons found for this selection.");
+      return;
+    }
+    const writeWithFallback = () => {
+      const ta = document.createElement("textarea");
+      ta.value = text;
+      ta.setAttribute("readonly", "");
+      ta.style.position = "fixed";
+      ta.style.left = "-9999px";
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand("copy");
+      document.body.removeChild(ta);
+    };
+    try {
+      if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text);
+      } else {
+        writeWithFallback();
+      }
+      setLessonExportFeedback(format === "markdown" ? "Markdown copied." : "Plain text copied.");
+      window.setTimeout(() => setLessonExportFeedback(""), 2200);
+    } catch {
+      try {
+        writeWithFallback();
+        setLessonExportFeedback(format === "markdown" ? "Markdown copied." : "Plain text copied.");
+        window.setTimeout(() => setLessonExportFeedback(""), 2200);
+      } catch {
+        setLessonExportFeedback("Copy failed. Please try again.");
+      }
+    }
+  }
+
   function confirmStartNewTerm() {
-    setStartNewTermModalOpen(false);
+    const resetWeek1StartDate = isoDateFromLocalDate(schoolWeekMonday(new Date()));
+    const resetCalendarMonthDate = schoolWeekMonday(new Date());
     if (startNewTermChoice === "full") {
       try {
         sessionStorage.setItem("teacher-studio-new-term-ready", "1");
@@ -5368,33 +6708,45 @@ export default function App() {
           }
         }
         const fresh = mergePersistedAppState(null);
+        const blankMerged = blankTimetableForFullResetFromTemplate(timetableTemplate);
+        const baseForReset = stripWeeklyFieldsFromBaseTimetable(extractBaseTimetableFromMerged(blankMerged));
+        const clearedWeekOverlays = emptyWeekLessonOverlays();
+        const resetSelectedWeek = "Week 1";
+        const timetableAfterReset = normalizeTimetableForStorage(
+          mergeBaseWithWeeklyOverlays(baseForReset, clearedWeekOverlays[resetSelectedWeek] ?? {})
+        );
+        const expandedDaysAfterReset = Object.fromEntries(
+          timetableAfterReset.map((d) => [d.day, false])
+        );
         const app = {
           v: 1,
           sidebarCollapsed: fresh.sidebarCollapsed,
           focusMode: fresh.focusMode,
-          calendarReminders: fresh.calendarReminders,
+          calendarReminders: [],
           viewMode: fresh.viewMode,
-          selectedDay: fresh.selectedDay,
-          selectedWeek: fresh.selectedWeek,
+          selectedDay: "Monday",
+          selectedWeek: resetSelectedWeek,
+          week1StartDate: resetWeek1StartDate,
           timerSeconds: fresh.timerSeconds,
           editingTimer: fresh.editingTimer,
           timerInput: fresh.timerInput,
           timerRunning: fresh.timerRunning,
-          timetable: fresh.timetable,
-          baseTimetable: fresh.baseTimetable,
-          weekLessonOverlays: fresh.weekLessonOverlays,
+          timetable: timetableAfterReset,
+          baseTimetable: baseForReset,
+          weekLessonOverlays: clearedWeekOverlays,
           lastViewMode: fresh.lastViewMode,
-          expandedLessons: fresh.expandedLessons,
-          expandedDays: fresh.expandedDays,
+          expandedLessons: [],
+          expandedDays: expandedDaysAfterReset,
           fontScale: fresh.fontScale,
-          searchQuery: fresh.searchQuery,
-          calendarMonth: fresh.calendarMonth,
+          searchQuery: "",
+          calendarMonth: { year: resetCalendarMonthDate.getFullYear(), month: resetCalendarMonthDate.getMonth() },
           toolShortcuts: fresh.toolShortcuts,
           dayCountdownTarget: fresh.dayCountdownTarget,
           dayCountdownEventLabel: fresh.dayCountdownEventLabel,
-          celebrations: fresh.celebrations,
+          celebrations: [],
           bellReminderSettings: normalizeBellReminderSettings(fresh.bellReminderSettings),
-          monthViewDayNotes: fresh.monthViewDayNotes,
+          monthViewDayNotes: {},
+          studentNotes: [],
         };
         writeTeacherStudioSnapshotToLocalStorage({
           app,
@@ -5415,9 +6767,14 @@ export default function App() {
       }
       return;
     }
+    setStartNewTermModalOpen(false);
     if (startNewTermChoice === "fresh" || startNewTermChoice === "keepUnits") {
       applyFreshStartForDaysAllTermWeeks(TT_WEEKDAY_ORDER);
     }
+    setWeek1StartDate(resetWeek1StartDate);
+    setSelectedWeek("Week 1");
+    setSelectedDay("Monday");
+    setCalendarMonth({ year: resetCalendarMonthDate.getFullYear(), month: resetCalendarMonthDate.getMonth() });
     if (startNewTermChoice === "fresh") {
       setUnitStore({ byClass: {} });
       writeUnitPlannerToStorage({ byClass: {} });
@@ -5443,6 +6800,7 @@ export default function App() {
       viewMode,
       selectedDay,
       selectedWeek,
+      week1StartDate,
       timerSeconds,
       editingTimer,
       timerInput,
@@ -5462,6 +6820,7 @@ export default function App() {
       celebrations,
       bellReminderSettings: normalizeBellReminderSettings(bellReminderSettings),
       monthViewDayNotes,
+      studentNotes,
     };
     const wt = window.localStorage.getItem(WEEK_TEMPLATE_STORAGE_KEY);
     return {
@@ -5742,7 +7101,6 @@ export default function App() {
     const trimmedValue = editingValue.trim();
     const isLessonSubject = editingField.type === "lesson" && editingField.field === "subject";
     const isLessonTime = editingField.type === "lesson" && editingField.field === "time";
-    const isLessonHeaderLabel = editingField.type === "lesson" && editingField.field === "headerLabel";
     const isLessonTopic = editingField.type === "lesson" && editingField.field === "lessonTopic";
     const allowEmpty =
       editingField.type === "duty" ||
@@ -5751,28 +7109,13 @@ export default function App() {
       editingField.field === "classGroup" ||
       editingField.field === "lessonTopic";
 
-    if (!trimmedValue && !allowEmpty && !isLessonSubject && !isLessonTime && !isLessonHeaderLabel) {
+    if (!trimmedValue && !allowEmpty && !isLessonSubject && !isLessonTime) {
       cancelInlineEdit();
       return;
     }
 
     const nextVal =
-      isLessonSubject || isLessonTime || isLessonHeaderLabel ? trimmedValue || "—" : trimmedValue;
-
-    if (isLessonHeaderLabel) {
-      applyTimetableUpdate((prev) =>
-        prev.map((day) => ({
-          ...day,
-          items: day.items.map((item) =>
-            item.id === editingField.itemId && item.type === "lesson"
-              ? { ...item, subject: nextVal, classGroup: "" }
-              : item
-          ),
-        }))
-      );
-      cancelInlineEdit();
-      return;
-    }
+      isLessonSubject || isLessonTime ? trimmedValue || "—" : trimmedValue;
 
     if (isLessonTopic) {
       applyTimetableUpdate((prev) =>
@@ -6251,6 +7594,7 @@ export default function App() {
             goToNextMonth={goToNextMonth}
             filteredUpcomingItems={filteredUpcomingItems}
             upcomingMonthListTextClass={upcomingMonthListTextClass}
+            selectedWeekDateLabelsByDay={selectedWeekDateLabelsByDay}
             monthViewDayNotes={monthViewDayNotes}
             onMonthViewDayNoteCommit={handleMonthViewDayNoteCommit}
             normalizedSearch={normalizedSearch}
@@ -6273,8 +7617,11 @@ export default function App() {
             openSlotLessonOverlay={openSlotLessonOverlay}
             openAddLessonForSlot={openAddLessonForSlot}
             openAccentPicker={openAccentPicker}
+            openStudentNoteEntryForLesson={openStudentNoteEntryForLesson}
             commitLessonLineNote={commitLessonLineNote}
             commitLessonSlotNote={commitLessonSlotNote}
+            onLessonHeaderCommitAttempt={onLessonHeaderCommitAttempt}
+            subjectApplyPrompt={subjectApplyPrompt}
             openCalendarFromLessonSlot={openCalendarFromLessonSlot}
             expandedLessons={expandedLessons}
             toggleLessonExpand={toggleLessonExpand}
@@ -6290,6 +7637,8 @@ export default function App() {
             closeSlotLessonOverlay={closeSlotLessonOverlay}
             saveSlotOverlayLesson={saveSlotOverlayLesson}
             handleTimerReset={handleTimerReset}
+            insertCellsAtAnchor={insertCellsAtAnchor}
+            removeCellsAtAnchor={removeCellsAtAnchor}
           />
           {addLessonOpen ? (
             <AddLessonPanel
@@ -6335,6 +7684,9 @@ export default function App() {
               setViewUnitsOpen(true);
               closeUtilitiesMenu();
             }}
+            onOpenWeekDatesFromUtilities={openWeekDatesFromUtilities}
+            onOpenStudentNotesFromUtilities={openStudentNotesFromUtilities}
+            onOpenLessonExportFromUtilities={openLessonExportFromUtilities}
             handleUtilityExportFile={handleUtilityExportFile}
             openUtilityImportModal={openUtilityImportModal}
             openArchiveModalFromUtilities={openArchiveModalFromUtilities}
@@ -6384,6 +7736,416 @@ export default function App() {
             cancelStartNewTermModal={cancelStartNewTermModal}
             confirmStartNewTerm={confirmStartNewTerm}
           />
+
+          {typeof document !== "undefined" &&
+            weekDateLockDialogOpen &&
+            createPortal(
+              <div className="fixed inset-0 z-[228] flex items-center justify-center p-4" role="dialog" aria-modal="true">
+                <button
+                  type="button"
+                  className="absolute inset-0 bg-slate-950/45"
+                  aria-label="Close"
+                  onClick={closeWeekDatesDialog}
+                />
+                <div
+                  className="relative z-10 w-full max-w-sm rounded-[5px] border border-slate-300 bg-white p-3 shadow-xl"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <p className="text-sm font-semibold text-slate-900">Lock Week Dates</p>
+                    <button
+                      type="button"
+                      onClick={closeWeekDatesDialog}
+                      className="rounded-full p-1.5 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
+                      aria-label="Close"
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
+                  </div>
+                  <p className="mt-1 text-[10px] text-slate-500">
+                    Set which week we are in and its Monday date. All weeks align from this.
+                  </p>
+
+                  <div className="mt-2">
+                    <label className="block text-[9px] font-semibold uppercase tracking-wide text-slate-500">
+                      Current week
+                    </label>
+                    <select
+                      value={weekDateLockWeek}
+                      onChange={(e) => setWeekDateLockWeek(e.target.value)}
+                      className="mt-1 w-full rounded-md border border-slate-200 bg-white px-2 py-1.5 text-[11px] text-slate-800 outline-none focus:border-slate-400"
+                    >
+                      {TERM_WEEKS.map((w) => (
+                        <option key={w} value={w}>
+                          {w}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="mt-2">
+                    <label className="block text-[9px] font-semibold uppercase tracking-wide text-slate-500">
+                      Monday date (Australia)
+                    </label>
+                    <input
+                      type="date"
+                      value={weekDateLockMondayIso}
+                      onChange={(e) => setWeekDateLockMondayIso(e.target.value)}
+                      className="mt-1 w-full rounded-md border border-slate-200 bg-white px-2 py-1.5 text-[11px] text-slate-800 outline-none focus:border-slate-400"
+                    />
+                  </div>
+
+                  <div className="mt-3 flex justify-end gap-2">
+                    <button
+                      type="button"
+                      onClick={closeWeekDatesDialog}
+                      className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-[11px] font-medium text-slate-700 transition hover:bg-slate-50"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      onClick={confirmWeekDatesLock}
+                      className="rounded-md bg-slate-900 px-3 py-1.5 text-[11px] font-semibold text-white transition hover:bg-slate-800"
+                    >
+                      Lock Dates
+                    </button>
+                  </div>
+                </div>
+              </div>,
+              document.body
+            )}
+
+          {typeof document !== "undefined" &&
+            lessonExportDialogOpen &&
+            createPortal(
+              <div className="fixed inset-0 z-[229] flex items-center justify-center p-4" role="dialog" aria-modal="true">
+                <button
+                  type="button"
+                  className="absolute inset-0 bg-slate-950/45"
+                  aria-label="Close"
+                  onClick={closeLessonExportDialog}
+                />
+                <div
+                  className="relative z-10 w-full max-w-sm rounded-[5px] border border-slate-300 bg-white p-3 shadow-xl"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <p className="text-sm font-semibold text-slate-900">Share / Export Lessons</p>
+                    <button
+                      type="button"
+                      onClick={closeLessonExportDialog}
+                      className="rounded-full p-1.5 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
+                      aria-label="Close"
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
+                  </div>
+                  <p className="mt-1 text-[10px] text-slate-500">{selectedWeek}</p>
+
+                  <div className="mt-2 space-y-1">
+                    <p className="text-[9px] font-semibold uppercase tracking-wide text-slate-500">Scope</p>
+                    <div className="flex flex-wrap gap-1">
+                      {[
+                        { key: "week", label: "Week" },
+                        { key: "day", label: "Day" },
+                        { key: "lesson", label: "Single lesson" },
+                      ].map((opt) => (
+                        <button
+                          key={opt.key}
+                          type="button"
+                          onClick={() => setLessonExportScope(opt.key)}
+                          className={cn(
+                            "rounded-full border px-2.5 py-1 text-[10px] font-semibold transition",
+                            lessonExportScope === opt.key
+                              ? "border-slate-800 bg-slate-800 text-white"
+                              : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+                          )}
+                        >
+                          {opt.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {lessonExportScope !== "week" ? (
+                    <div className="mt-2">
+                      <label className="block text-[9px] font-semibold uppercase tracking-wide text-slate-500">
+                        Day
+                      </label>
+                      <select
+                        value={lessonExportDay}
+                        onChange={(e) => setLessonExportDay(e.target.value)}
+                        className="mt-1 w-full rounded-md border border-slate-200 bg-white px-2 py-1.5 text-[11px] text-slate-800 outline-none focus:border-slate-400"
+                      >
+                        {lessonExportDayOptions.map((d) => (
+                          <option key={d.day} value={d.day}>
+                            {d.day} ({d.lessons.length})
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  ) : null}
+
+                  {lessonExportScope === "lesson" ? (
+                    <div className="mt-2">
+                      <label className="block text-[9px] font-semibold uppercase tracking-wide text-slate-500">
+                        Lesson
+                      </label>
+                      <select
+                        value={lessonExportLessonId}
+                        onChange={(e) => setLessonExportLessonId(e.target.value)}
+                        className="mt-1 w-full rounded-md border border-slate-200 bg-white px-2 py-1.5 text-[11px] text-slate-800 outline-none focus:border-slate-400"
+                      >
+                        {lessonExportLessonOptions.length === 0 ? (
+                          <option value="">No lessons</option>
+                        ) : null}
+                        {lessonExportLessonOptions.map((lesson) => {
+                          const label = lessonSlotDisplayTitle(lesson);
+                          const period = String(lesson?.period ?? "").trim();
+                          return (
+                            <option key={lesson.id} value={lesson.id}>
+                              {(period ? `P${period} - ` : "") + (label === "—" ? "Unassigned class" : label)}
+                            </option>
+                          );
+                        })}
+                      </select>
+                    </div>
+                  ) : null}
+
+                  {lessonExportFeedback ? (
+                    <p className="mt-2 text-[10px] font-medium text-slate-600">{lessonExportFeedback}</p>
+                  ) : null}
+
+                  <div className="mt-3 grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => copyLessonExport("plain")}
+                      className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-[11px] font-semibold text-slate-700 transition hover:bg-slate-50"
+                    >
+                      Copy Plain Text
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => copyLessonExport("markdown")}
+                      className="rounded-md bg-slate-900 px-3 py-1.5 text-[11px] font-semibold text-white transition hover:bg-slate-800"
+                    >
+                      Copy Markdown
+                    </button>
+                  </div>
+                </div>
+              </div>,
+              document.body
+            )}
+
+          {typeof document !== "undefined" &&
+            studentNoteEntryDialog &&
+            createPortal(
+              <div className="fixed inset-0 z-[230] flex items-center justify-center p-4" role="dialog" aria-modal="true">
+                <button
+                  type="button"
+                  className="absolute inset-0 bg-slate-950/45"
+                  aria-label="Close"
+                  onClick={closeStudentNoteEntryDialog}
+                />
+                <div
+                  className="relative z-10 w-full max-w-sm rounded-[5px] border border-slate-300 bg-white p-3 shadow-xl"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <p className="text-sm font-semibold text-slate-900">Student Note</p>
+                    <button
+                      type="button"
+                      onClick={closeStudentNoteEntryDialog}
+                      className="rounded-full p-1.5 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
+                      aria-label="Close"
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
+                  </div>
+                  <p className="mt-1 text-[10px] text-slate-500">{studentNoteEntryDialog.classLabel}</p>
+                  <input
+                    type="text"
+                    value={studentNoteStudentDraft}
+                    onChange={(e) => setStudentNoteStudentDraft(e.target.value)}
+                    placeholder="Student name"
+                    maxLength={120}
+                    className="mt-2 w-full rounded-md border border-slate-200 bg-white px-2 py-2 text-[12px] text-slate-800 outline-none placeholder:text-slate-400 focus:border-slate-400"
+                  />
+                  <div className="mt-2">
+                    <p className="mb-1 text-[10px] font-semibold text-slate-500">Quick choice</p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {STUDENT_NOTE_QUICK_CHOICES.map((choice) => {
+                        const active = studentNoteQuickChoiceDraft === choice;
+                        return (
+                          <button
+                            key={choice}
+                            type="button"
+                            onClick={() => setStudentNoteQuickChoiceDraft(active ? "" : choice)}
+                            className={cn(
+                              "rounded-full border px-2 py-1 text-[10px] font-medium transition",
+                              active
+                                ? "border-slate-800 bg-slate-800 text-white"
+                                : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+                            )}
+                          >
+                            {choice}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                  <textarea
+                    value={studentNoteTextDraft}
+                    onChange={(e) => setStudentNoteTextDraft(e.target.value)}
+                    placeholder="Teacher note"
+                    rows={4}
+                    maxLength={4000}
+                    className="mt-2 w-full resize-y rounded-md border border-slate-200 bg-white px-2 py-2 text-[12px] text-slate-800 outline-none placeholder:text-slate-400 focus:border-slate-400"
+                  />
+                  <div className="mt-2 flex justify-end gap-2">
+                    <button
+                      type="button"
+                      onClick={closeStudentNoteEntryDialog}
+                      className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-[11px] font-medium text-slate-700 transition hover:bg-slate-50"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      disabled={!studentNoteStudentDraft.trim() || !studentNoteTextDraft.trim()}
+                      onClick={saveStudentNoteEntry}
+                      className="rounded-md bg-slate-900 px-3 py-1.5 text-[11px] font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                      Save
+                    </button>
+                  </div>
+                </div>
+              </div>,
+              document.body
+            )}
+
+          {typeof document !== "undefined" &&
+            studentNotesViewerOpen &&
+            createPortal(
+              <div className="fixed inset-0 z-[231] flex items-center justify-center p-4" role="dialog" aria-modal="true">
+                <button
+                  type="button"
+                  className="absolute inset-0 bg-slate-950/50"
+                  aria-label="Close"
+                  onClick={() => setStudentNotesViewerOpen(false)}
+                />
+                <div
+                  className="relative z-10 flex max-h-[min(80vh,36rem)] w-full max-w-2xl flex-col overflow-hidden rounded-[5px] border border-slate-300 bg-white shadow-xl"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <div className="flex items-center justify-between gap-2 border-b border-slate-200 px-3 py-2">
+                    <p className="text-sm font-semibold text-slate-900">Student Notes</p>
+                    <button
+                      type="button"
+                      onClick={() => setStudentNotesViewerOpen(false)}
+                      className="rounded-full p-1.5 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
+                      aria-label="Close"
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
+                  </div>
+                  <div className="space-y-2 border-b border-slate-100 px-3 py-2">
+                    <div className="flex flex-wrap gap-1">
+                      <button
+                        type="button"
+                        onClick={() => setStudentNotesViewerScope("individual")}
+                        className={cn(
+                          "rounded-full px-2.5 py-1 text-[10px] font-semibold transition",
+                          studentNotesViewerScope === "individual"
+                            ? "bg-slate-800 text-white"
+                            : "border border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+                        )}
+                      >
+                        Individual
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setStudentNotesViewerScope("class")}
+                        className={cn(
+                          "rounded-full px-2.5 py-1 text-[10px] font-semibold transition",
+                          studentNotesViewerScope === "class"
+                            ? "bg-slate-800 text-white"
+                            : "border border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+                        )}
+                      >
+                        Class
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setStudentNotesViewerScope("all")}
+                        className={cn(
+                          "rounded-full px-2.5 py-1 text-[10px] font-semibold transition",
+                          studentNotesViewerScope === "all"
+                            ? "bg-slate-800 text-white"
+                            : "border border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+                        )}
+                      >
+                        All Classes
+                      </button>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <input
+                        type="text"
+                        value={studentNotesSearch}
+                        onChange={(e) => setStudentNotesSearch(e.target.value)}
+                        placeholder={
+                          studentNotesViewerScope === "individual"
+                            ? "Search student"
+                            : studentNotesViewerScope === "class"
+                              ? "Search within class"
+                              : "Search notes, student, class"
+                        }
+                        className="min-w-[10rem] flex-1 rounded-md border border-slate-200 bg-white px-2 py-1.5 text-[11px] text-slate-800 outline-none placeholder:text-slate-400 focus:border-slate-400"
+                      />
+                      {studentNotesViewerScope === "class" ? (
+                        <select
+                          value={studentNotesClassFilter}
+                          onChange={(e) => setStudentNotesClassFilter(e.target.value)}
+                          className="min-w-[10rem] rounded-md border border-slate-200 bg-white px-2 py-1.5 text-[11px] text-slate-800 outline-none focus:border-slate-400"
+                        >
+                          {studentNoteClassOptions.length === 0 ? (
+                            <option value="">No classes</option>
+                          ) : null}
+                          {studentNoteClassOptions.map((label) => (
+                            <option key={label} value={label}>
+                              {label}
+                            </option>
+                          ))}
+                        </select>
+                      ) : null}
+                    </div>
+                  </div>
+                  <div className="min-h-0 flex-1 overflow-y-auto px-3 py-2">
+                    {filteredStudentNotes.length === 0 ? (
+                      <p className="py-8 text-center text-[11px] text-slate-500">No student notes found.</p>
+                    ) : (
+                      <div className="space-y-1.5">
+                        {filteredStudentNotes.map((n) => (
+                          <div key={n.id} className="rounded-md border border-slate-200 bg-white px-2.5 py-2">
+                            <div className="flex flex-wrap items-center gap-1.5 text-[10px]">
+                              <span className="font-semibold text-slate-800">{n.studentName}</span>
+                              <span className="text-slate-400">•</span>
+                              <span className="text-slate-600">{n.classLabel}</span>
+                              {n.week ? <span className="text-slate-500">{n.week}</span> : null}
+                              {n.day ? <span className="text-slate-500">{n.day}</span> : null}
+                              {n.period ? <span className="text-slate-500">{n.period}</span> : null}
+                            </div>
+                            <p className="mt-1 whitespace-pre-wrap text-[11px] leading-snug text-slate-700">{n.note}</p>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>,
+              document.body
+            )}
 
           {typeof document !== "undefined" &&
             sidebarUpcomingAllOpen &&
@@ -6784,55 +8546,45 @@ export default function App() {
             role="dialog"
             aria-label="Apply room to matching lessons"
           >
-            <div className="w-[min(92vw,15.5rem)] rounded-xl border border-slate-200/90 bg-white/95 px-3 py-2 shadow-[0_6px_28px_-6px_rgba(15,23,42,0.18)] backdrop-blur-md">
-              <p className="text-[11px] leading-snug text-slate-600">
-                Use room{" "}
-                <span className="font-semibold text-slate-900">
-                  {roomApplyPrompt.newRoom.trim() || "—"}
-                </span>{" "}
-                for all{" "}
-                <span className="font-semibold text-slate-900">
-                  {countLessonsMatchingSubject(timetable, roomApplyPrompt.subject)}
-                </span>{" "}
-                &ldquo;
-                <span className="break-words" title={roomApplyPrompt.subject?.trim() || "(no title)"}>
-                  {roomApplyPrompt.subject?.trim() || "(no title)"}
-                </span>
-                &rdquo; lessons?
-              </p>
-              <div className="mt-2 flex gap-1.5">
-                <button
-                  type="button"
-                  onClick={() => {
-                    applyRoomToAllLessonsWithSubject(
-                      roomApplyPrompt.subject,
-                      roomApplyPrompt.newRoom
-                    );
-                    setRoomApplyPrompt(null);
-                  }}
-                  className="flex-1 rounded-lg bg-slate-800 py-1.5 text-[11px] font-semibold text-white transition hover:bg-slate-900"
-                >
-                  All
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    applyRoomToLessonId(roomApplyPrompt.lessonId, roomApplyPrompt.newRoom);
-                    setRoomApplyPrompt(null);
-                  }}
-                  className="flex-1 rounded-lg border border-slate-200/90 bg-white py-1.5 text-[11px] font-medium text-slate-700 transition hover:bg-slate-50"
-                >
-                  This one
-                </button>
-              </div>
-              <button
-                type="button"
-                onClick={() => setRoomApplyPrompt(null)}
-                className="mt-1.5 w-full text-center text-[10px] font-medium text-slate-400 transition hover:text-slate-600"
-              >
-                Cancel
-              </button>
-            </div>
+            <RoomApplyDialogBody
+              prompt={roomApplyPrompt}
+              timetable={timetable}
+              onClose={() => setRoomApplyPrompt(null)}
+              onApplySelected={(ids) => {
+                applyRoomToLessonIds(ids, roomApplyPrompt.newRoom);
+                setRoomApplyPrompt(null);
+              }}
+              onApplyThisSlotOnly={() => {
+                applyRoomToLessonId(roomApplyPrompt.lessonId, roomApplyPrompt.newRoom);
+                setRoomApplyPrompt(null);
+              }}
+            />
+          </div>,
+          document.body
+        )}
+      {typeof document !== "undefined" &&
+        subjectApplyPrompt &&
+        createPortal(
+          <div
+            ref={subjectApplyPopoverRef}
+            style={accentPickerFixedStyle(null, "confirm")}
+            className="pointer-events-auto"
+            role="dialog"
+            aria-label="Apply class title to matching lessons"
+          >
+            <SubjectApplyDialogBody
+              prompt={subjectApplyPrompt}
+              timetable={timetable}
+              onClose={() => setSubjectApplyPrompt(null)}
+              onApplySelected={(ids) => {
+                applySubjectToLessonIds(ids, subjectApplyPrompt.newSubject);
+                setSubjectApplyPrompt(null);
+              }}
+              onApplyThisSlotOnly={() => {
+                commitLessonHeaderLabel(subjectApplyPrompt.lessonId, subjectApplyPrompt.newSubject);
+                setSubjectApplyPrompt(null);
+              }}
+            />
           </div>,
           document.body
         )}
