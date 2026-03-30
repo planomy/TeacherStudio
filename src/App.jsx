@@ -2361,8 +2361,16 @@ function dashboardCelebrationsPanelStyle(anchor, panelWidth = 300) {
   return dashboardCalcPanelStyle(anchor, panelWidth);
 }
 
-function dashboardBellReminderPanelStyle(anchor, panelWidth = 292) {
+function dashboardBellReminderPanelStyle(anchor, panelWidth = 584) {
   return dashboardCalcPanelStyle(anchor, panelWidth);
+}
+
+function anchoredPopoverTop(anchor, estimatedHeight = 260, margin = 8) {
+  if (!anchor) return margin;
+  const vh = typeof window !== "undefined" ? window.innerHeight : 800;
+  const belowTop = anchor.bottom + 6;
+  if (belowTop + estimatedHeight <= vh - margin) return Math.max(margin, belowTop);
+  return Math.max(margin, anchor.top - estimatedHeight - 6);
 }
 
 function startOfLocalDay(input) {
@@ -2411,6 +2419,7 @@ function getReminderStatus(date, month, year) {
   if (Number.isNaN(target.getTime())) return "later";
   const today = startOfLocalDay(new Date());
   const deltaDays = Math.round((target.getTime() - today.getTime()) / 86400000);
+  if (deltaDays < 0) return "overdue";
   if (deltaDays === 0) return "today";
   if (deltaDays === 1) return "tomorrow";
   if (deltaDays >= 2 && deltaDays <= 6) return "thisWeek";
@@ -2418,6 +2427,16 @@ function getReminderStatus(date, month, year) {
 }
 
 function getCalendarEventTone(status, kind = "reminder") {
+  if (status === "overdue") {
+    return {
+      card: "border-l-4 border-red-600 bg-black",
+      dot: "bg-red-500",
+      text: "text-red-200 font-medium",
+      label: "Overdue",
+      chip: "bg-slate-900 text-slate-100 border-slate-700",
+      overdueChip: "bg-red-600 text-red-50 border-red-400",
+    };
+  }
   if (status === "today") {
     return {
       card: "border-l-4 border-red-500 bg-red-100/70",
@@ -2425,6 +2444,7 @@ function getCalendarEventTone(status, kind = "reminder") {
       text: "text-red-600",
       label: "Today",
       chip: "bg-red-200 text-red-700 border-red-300",
+      overdueChip: "bg-red-200 text-red-700 border-red-300",
     };
   }
 
@@ -2435,6 +2455,7 @@ function getCalendarEventTone(status, kind = "reminder") {
       text: "text-white font-medium",
       label: "Tomorrow",
       chip: "bg-white/40 text-white border-white/50",
+      overdueChip: "bg-white/40 text-white border-white/50",
     };
   }
 
@@ -2445,6 +2466,7 @@ function getCalendarEventTone(status, kind = "reminder") {
       text: "text-white font-medium",
       label: "This week",
       chip: "bg-white/40 text-white border-white/50",
+      overdueChip: "bg-white/40 text-white border-white/50",
     };
   }
 
@@ -2454,6 +2476,7 @@ function getCalendarEventTone(status, kind = "reminder") {
     text: "text-slate-400",
     label: "Later",
     chip: "bg-slate-700 text-slate-100 border-slate-600",
+    overdueChip: "bg-slate-700 text-slate-100 border-slate-600",
   };
 }
 
@@ -2461,6 +2484,7 @@ function getCalendarEventTone(status, kind = "reminder") {
 function upcomingMonthListTextClass(item) {
   if (item?.kind === "celebration") return "font-medium text-purple-700";
   const status = item?.status ?? "later";
+  if (status === "overdue") return "font-medium text-red-800";
   if (status === "today" || status === "tomorrow") return "font-medium text-red-700";
   if (status === "thisWeek") return "font-medium text-orange-700";
   return "font-medium text-slate-600";
@@ -2854,7 +2878,7 @@ function LessonSlotRow({
               aria-label="Lesson actions"
               className="fixed z-[101] max-h-[min(70vh,24rem)] w-[min(14rem,calc(100vw-16px))] overflow-y-auto overflow-x-hidden rounded-lg border border-slate-200/90 bg-white py-1 shadow-lg"
               style={{
-                top: plusMenuAnchor.bottom + 6,
+                top: anchoredPopoverTop(plusMenuAnchor, 260),
                 left: Math.max(
                   8,
                   Math.min(
@@ -3725,7 +3749,7 @@ function DutyRow({
               aria-label="Duty row actions"
               className="fixed z-[101] w-[min(14rem,calc(100vw-16px))] overflow-hidden rounded-lg border border-slate-200/90 bg-white py-1 shadow-lg"
               style={{
-                top: plusMenuAnchor.bottom + 6,
+                top: anchoredPopoverTop(plusMenuAnchor, 180),
                 left: Math.max(
                   8,
                   Math.min(
@@ -4705,11 +4729,9 @@ function mergePersistedAppState(raw) {
     focusMode: typeof raw.focusMode === "boolean" ? raw.focusMode : defaults.focusMode,
     calendarReminders: Array.isArray(raw.calendarReminders) ? raw.calendarReminders : defaults.calendarReminders,
     viewMode:
-      raw.viewMode === "week" || raw.viewMode === "month"
+      raw.viewMode === "week" || raw.viewMode === "month" || raw.viewMode === "day"
         ? raw.viewMode
-        : raw.viewMode === "day"
-          ? "week"
-          : defaults.viewMode,
+        : defaults.viewMode,
     selectedDay,
     selectedWeek,
     week1StartDate,
@@ -4721,11 +4743,9 @@ function mergePersistedAppState(raw) {
     baseTimetable,
     weekLessonOverlays,
     lastViewMode:
-      raw.lastViewMode === "week" || raw.lastViewMode === "month"
+      raw.lastViewMode === "week" || raw.lastViewMode === "month" || raw.lastViewMode === "day"
         ? raw.lastViewMode
-        : raw.lastViewMode === "day"
-          ? "week"
-          : defaults.lastViewMode,
+        : defaults.lastViewMode,
     expandedLessons: Array.isArray(raw.expandedLessons) ? raw.expandedLessons : defaults.expandedLessons,
     expandedDays,
     fontScale,
@@ -4950,6 +4970,7 @@ export default function App() {
   const [calendarDraft, setCalendarDraft] = useState("");
   const [calendarTypeDraft, setCalendarTypeDraft] = useState("reminder");
   const [deleteId, setDeleteId] = useState(null);
+  const [dismissedOverdueBadges, setDismissedOverdueBadges] = useState(() => new Set());
   const [viewMode, setViewMode] = useState(initialAppState.viewMode);
   const [selectedDay, setSelectedDay] = useState(initialAppState.selectedDay);
   const [selectedWeek, setSelectedWeek] = useState(initialAppState.selectedWeek);
@@ -5240,6 +5261,21 @@ export default function App() {
     [upcomingItems, normalizedSearch]
   );
 
+  useEffect(() => {
+    const overdueIds = new Set(
+      upcomingItems.filter((item) => item.kind !== "celebration" && item.status === "overdue").map((item) => item.id)
+    );
+    setDismissedOverdueBadges((prev) => {
+      let changed = false;
+      const next = new Set();
+      prev.forEach((id) => {
+        if (overdueIds.has(id)) next.add(id);
+        else changed = true;
+      });
+      return changed ? next : prev;
+    });
+  }, [upcomingItems]);
+
   useLayoutEffect(() => {
     updateSidebarMoreBelow();
   }, [filteredUpcomingItems, sidebarCollapsed, updateSidebarMoreBelow]);
@@ -5303,7 +5339,12 @@ export default function App() {
   }, [timetable, normalizedSearch]);
 
   const timetableForView = normalizedSearch ? filteredTimetable : timetable;
-  const visibleDays = viewMode === "week" ? timetableForView : [];
+  const visibleDays =
+    viewMode === "week"
+      ? timetableForView
+      : viewMode === "day"
+        ? timetableForView.filter((d) => d.day === selectedDay)
+        : [];
   const expandScopeDays = viewMode === "month" ? timetableForView : visibleDays;
 
   const timetableClassLabels = useMemo(() => collectTimetableClassLabels(timetable), [timetable]);
@@ -5741,12 +5782,6 @@ export default function App() {
     tick();
     return () => window.clearInterval(id);
   }, [bellReminderSettings.enabled]);
-
-  useEffect(() => {
-    if (!bellReminderToast) return;
-    const t = window.setTimeout(() => setBellReminderToast(null), 8000);
-    return () => window.clearTimeout(t);
-  }, [bellReminderToast]);
 
   useEffect(() => {
     try {
@@ -6228,10 +6263,15 @@ export default function App() {
   }
 
   function openCalendarFromLessonSlot(dayName, kind, suggestedTitle = "") {
-    const y = calendarMonth.year;
-    const m = calendarMonth.month;
-    let date = firstDateForWeekdayInMonth(y, m, dayName);
-    if (date == null) date = 1;
+    const resolvedDate = weekDayDateFor(week1StartDate, selectedWeek, dayName);
+    const y = resolvedDate?.getFullYear() ?? calendarMonth.year;
+    const m = resolvedDate?.getMonth() ?? calendarMonth.month;
+    let date = resolvedDate?.getDate();
+    if (!Number.isFinite(date)) {
+      date = firstDateForWeekdayInMonth(y, m, dayName);
+      if (date == null) date = 1;
+    }
+    setCalendarMonth({ year: y, month: m });
     setSelectedCalendarDate(date);
     setSelectedCalendarReminderId(null);
     setCalendarTypeDraft(kind);
@@ -6312,7 +6352,7 @@ export default function App() {
 
   function handleFillDay(dayName) {
     setSelectedDay(dayName);
-    setViewMode("week");
+    setViewMode("day");
   }
 
   function toggleFocusMode() {
@@ -7365,6 +7405,10 @@ export default function App() {
                       item.kind === "celebration"
                         ? CELEBRATION_LIST_TONE
                         : getCalendarEventTone(item.status, item.kind);
+                    const showOverdueBadge =
+                      item.kind !== "celebration" &&
+                      item.status === "overdue" &&
+                      !dismissedOverdueBadges.has(item.id);
                     const isDeleting = deleteId === item.id;
                     return (
                       <div
@@ -7421,6 +7465,28 @@ export default function App() {
                                     <span className={cn("inline-flex rounded-full border px-2 py-0.5 text-[9px] font-bold uppercase tracking-[0.14em] shadow-sm", tone.chip)}>
                                       {item.kind === "celebration" ? "Celebration" : item.kind}
                                     </span>
+                                    {showOverdueBadge ? (
+                                      <button
+                                        type="button"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          setDismissedOverdueBadges((prev) => {
+                                            const next = new Set(prev);
+                                            next.add(item.id);
+                                            return next;
+                                          });
+                                        }}
+                                        className={cn(
+                                          "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[9px] font-bold uppercase tracking-[0.12em] shadow-sm",
+                                          tone.overdueChip
+                                        )}
+                                        aria-label="Dismiss overdue badge"
+                                        title="Dismiss overdue badge"
+                                      >
+                                        OVERDUE
+                                        <span className="text-[10px] leading-none">×</span>
+                                      </button>
+                                    ) : null}
                                     <span className={cn("text-[10px] font-medium", tone.text)}>
                                       {item.dayName} {item.date}{" "}
                                       {new Date(item.year, item.month, 1).toLocaleDateString("en-AU", { month: "short" })}
@@ -7536,6 +7602,7 @@ export default function App() {
               ChevronDown,
               ChevronsUpDown,
               Wrench,
+              X,
             }}
             focusMode={focusMode}
             selectedWeek={selectedWeek}
@@ -7640,6 +7707,16 @@ export default function App() {
             insertCellsAtAnchor={insertCellsAtAnchor}
             removeCellsAtAnchor={removeCellsAtAnchor}
           />
+          {bellReminderToast ? (
+            <div
+              className="pointer-events-auto absolute bottom-6 left-1/2 z-[210] w-[min(92vw,24rem)] -translate-x-1/2 cursor-pointer rounded-xl border-2 border-black bg-red-500 px-4 py-2.5 text-center shadow-lg"
+              role="status"
+              onClick={() => setBellReminderToast(null)}
+            >
+              <p className="text-sm font-semibold text-white">{bellReminderToast.text}</p>
+              <p className="mt-0.5 text-[9px] font-medium text-white/90">Tap to dismiss</p>
+            </div>
+          ) : null}
           {addLessonOpen ? (
             <AddLessonPanel
               draft={addLessonDraft}
@@ -8189,6 +8266,10 @@ export default function App() {
                             item.kind === "celebration"
                               ? CELEBRATION_LIST_TONE
                               : getCalendarEventTone(item.status, item.kind);
+                          const showOverdueBadge =
+                            item.kind !== "celebration" &&
+                            item.status === "overdue" &&
+                            !dismissedOverdueBadges.has(item.id);
                           const isDeleting = deleteId === item.id;
                           return (
                             <div
@@ -8244,6 +8325,28 @@ export default function App() {
                                       >
                                         {item.kind === "celebration" ? "Celebration" : item.kind}
                                       </span>
+                                      {showOverdueBadge ? (
+                                        <button
+                                          type="button"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            setDismissedOverdueBadges((prev) => {
+                                              const next = new Set(prev);
+                                              next.add(item.id);
+                                              return next;
+                                            });
+                                          }}
+                                          className={cn(
+                                            "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[9px] font-bold uppercase tracking-[0.12em] shadow-sm",
+                                            tone.overdueChip
+                                          )}
+                                          aria-label="Dismiss overdue badge"
+                                          title="Dismiss overdue badge"
+                                        >
+                                          OVERDUE
+                                          <span className="text-[10px] leading-none">×</span>
+                                        </button>
+                                      ) : null}
                                       <span className={cn("text-[10px] font-medium", tone.text)}>
                                         {item.dayName} {item.date}{" "}
                                         {new Date(item.year, item.month, 1).toLocaleDateString("en-AU", {
@@ -8861,12 +8964,12 @@ export default function App() {
           <div
             ref={bellPopoverRef}
             style={dashboardBellReminderPanelStyle(bellReminderAnchor)}
-            className="pointer-events-auto flex flex-col overflow-hidden rounded-xl border border-slate-200/90 bg-white/95 p-2.5 shadow-[0_6px_28px_-6px_rgba(15,23,42,0.18)] backdrop-blur-md"
+            className="pointer-events-auto flex flex-col overflow-hidden rounded-xl border border-red-200/90 bg-red-50/95 p-2.5 shadow-[0_8px_34px_-8px_rgba(127,29,29,0.28)] backdrop-blur-md"
             role="dialog"
             aria-label="Bell reminders"
           >
             <div className="mb-2 flex shrink-0 items-center justify-between gap-2">
-              <span className="text-[10px] font-semibold uppercase tracking-wide text-amber-800">
+              <span className="text-[10px] font-semibold uppercase tracking-wide text-red-800">
                 Bell reminders
               </span>
               <button
@@ -8884,7 +8987,7 @@ export default function App() {
                 onChange={(e) =>
                   setBellReminderSettings((p) => ({ ...p, enabled: e.target.checked }))
                 }
-                className="h-3.5 w-3.5 shrink-0 rounded border-slate-300 text-amber-600 focus:ring-amber-500"
+                className="h-3.5 w-3.5 shrink-0 rounded border-red-300 text-red-600 focus:ring-red-500"
               />
               Reminders on
             </label>
@@ -8895,7 +8998,7 @@ export default function App() {
                 onChange={(e) =>
                   setBellReminderSettings((p) => ({ ...p, soundEnabled: e.target.checked }))
                 }
-                className="h-3.5 w-3.5 shrink-0 rounded border-slate-300 text-amber-600 focus:ring-amber-500"
+                className="h-3.5 w-3.5 shrink-0 rounded border-red-300 text-red-600 focus:ring-red-500"
               />
               Play sound
             </label>
@@ -8921,7 +9024,7 @@ export default function App() {
                           ),
                         }))
                       }
-                      className="min-w-0 flex-1 rounded-md border border-slate-200 px-1 py-0.5 text-[11px] outline-none focus:border-amber-300"
+                      className="min-w-0 flex-1 rounded-md border border-red-200 bg-white px-1 py-0.5 text-[11px] outline-none focus:border-red-300"
                     />
                     <button
                       type="button"
@@ -8948,7 +9051,7 @@ export default function App() {
                   periodEndTimes: [...prev.periodEndTimes, "09:00"],
                 }))
               }
-              className="mb-2 shrink-0 rounded-md border border-amber-200/90 bg-amber-50/80 py-1 text-[10px] font-medium text-amber-900 transition hover:bg-amber-100"
+              className="mb-2 shrink-0 rounded-md border border-red-200/90 bg-red-100/70 py-1 text-[10px] font-medium text-red-900 transition hover:bg-red-200/70"
             >
               + Period end time
             </button>
@@ -8971,7 +9074,7 @@ export default function App() {
                           ),
                         }))
                       }
-                      className="w-[3.35rem] shrink-0 rounded-md border border-slate-200 bg-white px-0.5 py-0.5 text-[10px] font-medium outline-none focus:border-amber-300"
+                      className="w-[3.35rem] shrink-0 rounded-md border border-red-200 bg-white px-0.5 py-0.5 text-[10px] font-medium outline-none focus:border-red-300"
                       aria-label="Duty day"
                     >
                       {TT_WEEKDAY_ORDER.map((d) => (
@@ -8991,7 +9094,7 @@ export default function App() {
                           ),
                         }))
                       }
-                      className="min-w-0 flex-1 rounded-md border border-slate-200 px-1 py-0.5 text-[11px] outline-none focus:border-amber-300"
+                      className="min-w-0 flex-1 rounded-md border border-red-200 bg-white px-1 py-0.5 text-[11px] outline-none focus:border-red-300"
                     />
                     <button
                       type="button"
@@ -9022,19 +9125,6 @@ export default function App() {
             >
               + Duty time
             </button>
-          </div>,
-          document.body
-        )}
-      {typeof document !== "undefined" &&
-        bellReminderToast &&
-        createPortal(
-          <div
-            className="pointer-events-auto fixed bottom-6 left-1/2 z-[210] max-w-[min(92vw,22rem)] -translate-x-1/2 cursor-pointer rounded-xl border border-amber-300 bg-amber-950 px-4 py-2.5 text-center shadow-lg"
-            role="status"
-            onClick={() => setBellReminderToast(null)}
-          >
-            <p className="text-sm font-semibold text-amber-50">{bellReminderToast.text}</p>
-            <p className="mt-0.5 text-[9px] font-medium text-amber-200/90">Tap to dismiss</p>
           </div>,
           document.body
         )}

@@ -301,6 +301,7 @@ export function TimetableStudioPanel({
     ChevronDown,
     ChevronsUpDown,
     Wrench,
+    X,
   } = components;
 
   const weekPickerTriggerRef = useRef(null);
@@ -793,6 +794,7 @@ export function TimetableStudioPanel({
                     type="button"
                     onClick={() => {
                       setSelectedDay(day.day);
+                      setViewMode("day");
                     }}
                     className={cn(
                       "w-20 shrink-0 text-center rounded-[5px] border px-3 py-2 text-sm font-medium shadow-sm transition",
@@ -811,7 +813,7 @@ export function TimetableStudioPanel({
                           onClick={() => setViewMode("week")}
                           className={cn(
                             "rounded-full px-3 py-1.5 text-xs font-medium transition",
-                            viewMode === "week" ? "bg-slate-900 text-white" : "text-slate-600"
+                            viewMode !== "month" ? "bg-slate-900 text-white" : "text-slate-600"
                           )}
                         >
                           Week
@@ -907,6 +909,17 @@ export function TimetableStudioPanel({
                       )}
                     </div>
                     <div className="flex items-center gap-2">
+                      {viewMode === "day" ? (
+                        <button
+                          type="button"
+                          onClick={() => setViewMode("week")}
+                          className="flex h-8 w-8 items-center justify-center rounded-full border border-slate-300 bg-white text-slate-700 shadow-sm transition hover:bg-slate-50"
+                          title="Close day focus"
+                          aria-label="Close day focus"
+                        >
+                          <X className="h-4 w-4" />
+                        </button>
+                      ) : null}
                       <button
                         onClick={() => handleFillDay(day.day)}
                         className="flex h-8 w-8 items-center justify-center rounded-full border border-slate-300 bg-white text-slate-700 shadow-sm transition hover:bg-slate-50"
