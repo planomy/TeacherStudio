@@ -113,7 +113,7 @@ export function UtilitiesMenusAndModals({
             className="flex w-full px-3 py-2 text-left text-[12.5px] font-medium text-slate-800 transition hover:bg-slate-50"
             onClick={onOpenUnitPlannerFromUtilities}
           >
-            Unit Planner
+            Unit Outliner
           </button>
           <button
             type="button"

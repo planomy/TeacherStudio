@@ -276,6 +276,7 @@ export function TimetableStudioPanel({
   setEditingValue,
   saveInlineEdit,
   cancelInlineEdit,
+  unitStore,
   slotOverlayLessonId,
   findLessonInTimetable,
   findLessonDayNameInTimetable,
@@ -1031,6 +1032,7 @@ export function TimetableStudioPanel({
                       key={slotOverlayLessonId}
                       lesson={overlayLesson}
                       dayName={overlayDayName}
+                      unitStore={unitStore}
                       onClose={closeSlotLessonOverlay}
                       onSave={(patch) => saveSlotOverlayLesson(overlayLesson.id, patch)}
                       onOpenAccentPicker={openAccentPicker}

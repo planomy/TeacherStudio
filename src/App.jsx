@@ -11,6 +11,7 @@ const DEFAULT_LESSON_TITLE_PLACEHOLDER = "Type or Click + to add lesson";
 const DEFAULT_CLASS_SUBJECT_PLACEHOLDER = "Add class";
 /** Shown when room is empty (timetable cell + room editor). */
 const DEFAULT_ROOM_PLACEHOLDER = "Room";
+const DEFAULT_LESSON_FOCUS_PLACEHOLDER = "Eg: Structure of a Fable";
 const DEFAULT_LINE_NOTE_PLACEHOLDER = "Type or Click + to add note";
 /** Timetable card: main note textarea under the line note. */
 const DEFAULT_SLOT_NOTE_PLACEHOLDER = "Type or Click + to add note";
@@ -749,6 +750,7 @@ function defaultAddLessonDraft(dayName, timetable) {
     period,
     durationMins: 70,
     room: (slot?.room ?? "").trim() || "",
+    unitTitle: String(slot?.lessonPlan?.unitTitle ?? ""),
     learningIntention: "",
     successCriteria: [""],
     sequence: ADD_LESSON_SEQUENCE_DEFAULTS.map((phase) => ({ phase, text: "" })),
@@ -824,6 +826,7 @@ function lessonPlanEditorsFromLesson(lesson) {
   if (!p) {
     return {
       durationMins: 70,
+      unitTitle: "",
       lessonTopic: "",
       learningIntention: "",
       successCriteria: [""],
@@ -835,6 +838,7 @@ function lessonPlanEditorsFromLesson(lesson) {
   }
   return {
     durationMins,
+    unitTitle: String(p.unitTitle ?? ""),
     lessonTopic: String(p.lessonTopic ?? ""),
     learningIntention: String(p.learningIntention ?? ""),
     successCriteria:
@@ -862,6 +866,7 @@ function buildSlotLessonPlanPayload(draft) {
   const seq = Array.isArray(draft.sequence) ? draft.sequence : [];
   const lessonPlan = {
     durationMins,
+    unitTitle: String(draft.unitTitle ?? "").trim(),
     lessonTopic: String(draft.lessonTopic ?? "").trim(),
     learningIntention: draft.learningIntention.trim(),
     successCriteria: sc.map((s) => String(s).trim()).filter(Boolean),
@@ -959,7 +964,7 @@ function UnitPlannerPanel({ open, onClose, classOptions, onSave }) {
             <div>
               <p className="text-[10px] font-medium uppercase tracking-[0.18em] text-slate-400">Planning</p>
               <h3 id="unit-planner-title" className="text-base font-semibold tracking-tight text-slate-900">
-                Unit planner
+                Unit outliner
               </h3>
               <p className="mt-0.5 text-[11px] text-slate-500">
                 Save a unit and lesson focuses for a class. Paste <span className="font-mono text-[10px]">https://</span>{" "}
@@ -1038,7 +1043,7 @@ function UnitPlannerPanel({ open, onClose, classOptions, onSave }) {
                       value={row}
                       onChange={(e) => setFocusAt(i, e.target.value)}
                       className={cn(inp, "min-w-0 flex-1 text-sm")}
-                      placeholder="Lesson focus"
+                      placeholder={DEFAULT_LESSON_FOCUS_PLACEHOLDER}
                       maxLength={320}
                     />
                     <button
@@ -1139,7 +1144,7 @@ function ViewUnitsPanel({ open, onClose, unitStore, classOptions }) {
           <div className="space-y-3">
             {classOptions.length === 0 ? (
               <p className="rounded-xl border border-slate-200/90 bg-slate-50 px-3 py-2.5 text-[11px] leading-snug text-slate-600">
-                No classes or saved units yet. Use <span className="font-semibold text-slate-800">Unit Planner</span>{" "}
+                No classes or saved units yet. Use <span className="font-semibold text-slate-800">Unit Outliner</span>{" "}
                 after your timetable shows class names (e.g. 7E English).
               </p>
             ) : (
@@ -1226,9 +1231,11 @@ function ViewUnitsPanel({ open, onClose, unitStore, classOptions }) {
   );
 }
 
-function AddLessonPanel({ draft, setDraft, timetable, onClose, onSubmit }) {
+function AddLessonPanel({ draft, setDraft, timetable, unitStore, onClose, onSubmit }) {
   const inp = addLessonFieldClass();
   const lab = "mb-1 block text-[9px] font-semibold uppercase tracking-[0.14em] text-slate-400";
+  const [focusMenuOpen, setFocusMenuOpen] = useState(false);
+  const focusMenuWrapRef = useRef(null);
   const slotRow = timetable
     .find((d) => d.day === draft.day)
     ?.items.find((i) => i.type === "lesson" && i.period === draft.period);
@@ -1241,6 +1248,53 @@ function AddLessonPanel({ draft, setDraft, timetable, onClose, onSubmit }) {
         .filter(Boolean)
         .join(" · ")
     : "";
+  const plannerClassLabel = slotRowTitle && slotRowTitle !== "—" ? slotRowTitle : "";
+  const unitsForClass = useMemo(() => {
+    if (!plannerClassLabel) return [];
+    const list = unitStore?.byClass?.[plannerClassLabel];
+    if (!Array.isArray(list)) return [];
+    return [...list].sort((a, b) => {
+      const ta = new Date(a.savedAt).getTime();
+      const tb = new Date(b.savedAt).getTime();
+      return (Number.isFinite(tb) ? tb : 0) - (Number.isFinite(ta) ? ta : 0);
+    });
+  }, [unitStore, plannerClassLabel]);
+  const unitTitleOptions = useMemo(() => {
+    const seen = new Set();
+    const out = [];
+    for (const u of unitsForClass) {
+      const t = String(u?.unitTitle ?? "").trim();
+      if (!t || seen.has(t)) continue;
+      seen.add(t);
+      out.push(t);
+    }
+    return out;
+  }, [unitsForClass]);
+  const selectedUnit = useMemo(
+    () => unitsForClass.find((u) => String(u?.unitTitle ?? "").trim() === String(draft.unitTitle ?? "").trim()) ?? null,
+    [unitsForClass, draft.unitTitle]
+  );
+  const selectedUnitFocusOptions = useMemo(() => {
+    if (!selectedUnit || !Array.isArray(selectedUnit.lessonFocuses)) return [];
+    return selectedUnit.lessonFocuses.map((f) => String(f ?? "").trim()).filter(Boolean);
+  }, [selectedUnit]);
+
+  useEffect(() => {
+    const current = String(draft.unitTitle ?? "").trim();
+    if (!current) return;
+    if (unitTitleOptions.includes(current)) return;
+    setDraft((d) => ({ ...d, unitTitle: "" }));
+  }, [draft.unitTitle, unitTitleOptions, setDraft]);
+
+  useEffect(() => {
+    if (!focusMenuOpen) return;
+    const onPointer = (e) => {
+      if (focusMenuWrapRef.current?.contains(e.target)) return;
+      setFocusMenuOpen(false);
+    };
+    window.addEventListener("pointerdown", onPointer);
+    return () => window.removeEventListener("pointerdown", onPointer);
+  }, [focusMenuOpen]);
 
   return (
     <>
@@ -1362,14 +1416,71 @@ function AddLessonPanel({ draft, setDraft, timetable, onClose, onSubmit }) {
             </div>
 
             <div>
+              <label className={lab}>Unit title</label>
+              {unitTitleOptions.length === 0 ? (
+                <p className="rounded-lg border border-slate-200/90 bg-slate-50 px-2.5 py-2 text-[11px] text-slate-500">
+                  No saved units for this class yet.
+                </p>
+              ) : (
+                <select
+                  value={draft.unitTitle ?? ""}
+                  onChange={(e) => setDraft((d) => ({ ...d, unitTitle: e.target.value }))}
+                  className={inp}
+                >
+                  <option value="">Select unit title</option>
+                  {unitTitleOptions.map((title) => (
+                    <option key={title} value={title}>
+                      {title}
+                    </option>
+                  ))}
+                </select>
+              )}
+            </div>
+
+            <div>
               <label className={lab}>Lesson focus</label>
-              <input
-                type="text"
-                value={draft.lessonTopic ?? ""}
-                onChange={(e) => setDraft((d) => ({ ...d, lessonTopic: e.target.value }))}
-                className={inp}
-                placeholder="Optional, e.g. Fables"
-              />
+              <div ref={focusMenuWrapRef} className="relative">
+                <div className="flex items-center gap-1.5">
+                  <input
+                    type="text"
+                    value={draft.lessonTopic ?? ""}
+                    onFocus={() => setFocusMenuOpen(true)}
+                    onChange={(e) => {
+                      setDraft((d) => ({ ...d, lessonTopic: e.target.value }));
+                      setFocusMenuOpen(true);
+                    }}
+                    className={cn(inp, "min-w-0 flex-1")}
+                    placeholder={DEFAULT_LESSON_FOCUS_PLACEHOLDER}
+                  />
+                  {selectedUnitFocusOptions.length > 0 ? (
+                    <button
+                      type="button"
+                      onClick={() => setFocusMenuOpen((v) => !v)}
+                      className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-slate-200 text-slate-600 transition hover:bg-slate-50"
+                      aria-label="Show lesson focus options"
+                    >
+                      <ChevronDown className={cn("h-4 w-4 transition-transform", focusMenuOpen && "rotate-180")} />
+                    </button>
+                  ) : null}
+                </div>
+                {focusMenuOpen && selectedUnitFocusOptions.length > 0 ? (
+                  <div className="absolute left-0 right-0 top-[calc(100%+4px)] z-20 max-h-44 overflow-y-auto rounded-lg border border-slate-200 bg-white p-1 shadow-lg">
+                    {selectedUnitFocusOptions.map((focus) => (
+                      <button
+                        key={focus}
+                        type="button"
+                        onClick={() => {
+                          setDraft((d) => ({ ...d, lessonTopic: focus }));
+                          setFocusMenuOpen(false);
+                        }}
+                        className="flex w-full rounded-md px-2 py-1.5 text-left text-[12px] text-slate-700 transition hover:bg-slate-50"
+                      >
+                        {focus}
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
             </div>
 
             <div>
@@ -3280,6 +3391,7 @@ function PlanningLinkPreview({ text }) {
 function SlotLessonDetailOverlay({
   lesson,
   dayName,
+  unitStore,
   onClose,
   onSave,
   onOpenAccentPicker,
@@ -3293,6 +3405,7 @@ function SlotLessonDetailOverlay({
   const [headerLabelDraft, setHeaderLabelDraft] = useState(() => lessonHeaderTitleForEdit(lesson));
   const [urgent, setUrgent] = useState(Boolean(lesson.urgent));
   const [durationMins, setDurationMins] = useState(70);
+  const [unitTitle, setUnitTitle] = useState("");
   const [learningIntention, setLearningIntention] = useState("");
   const [successCriteria, setSuccessCriteria] = useState([""]);
   const [sequence, setSequence] = useState(() =>
@@ -3301,10 +3414,13 @@ function SlotLessonDetailOverlay({
   const [resources, setResources] = useState("");
   const [homework, setHomework] = useState("");
   const [teacherNote, setTeacherNote] = useState("");
+  const [focusMenuOpen, setFocusMenuOpen] = useState(false);
+  const focusMenuWrapRef = useRef(null);
 
   useEffect(() => {
     const lpInit = lessonPlanEditorsFromLesson(lesson);
     setDurationMins(lpInit.durationMins);
+    setUnitTitle(lpInit.unitTitle);
     setLessonTopic(lpInit.lessonTopic);
     setLearningIntention(lpInit.learningIntention);
     setSuccessCriteria(lpInit.successCriteria);
@@ -3327,6 +3443,53 @@ function SlotLessonDetailOverlay({
 
   const accentOpt = lessonAccentOption(lesson);
   const defaultPhaseSet = useMemo(() => new Set(ADD_LESSON_SEQUENCE_DEFAULTS), []);
+  const plannerClassLabel = lessonSlotDisplayTitle(lesson);
+  const unitsForClass = useMemo(() => {
+    if (!plannerClassLabel || plannerClassLabel === "—") return [];
+    const list = unitStore?.byClass?.[plannerClassLabel];
+    if (!Array.isArray(list)) return [];
+    return [...list].sort((a, b) => {
+      const ta = new Date(a.savedAt).getTime();
+      const tb = new Date(b.savedAt).getTime();
+      return (Number.isFinite(tb) ? tb : 0) - (Number.isFinite(ta) ? ta : 0);
+    });
+  }, [unitStore, plannerClassLabel]);
+  const unitTitleOptions = useMemo(() => {
+    const seen = new Set();
+    const out = [];
+    for (const u of unitsForClass) {
+      const t = String(u?.unitTitle ?? "").trim();
+      if (!t || seen.has(t)) continue;
+      seen.add(t);
+      out.push(t);
+    }
+    return out;
+  }, [unitsForClass]);
+  const selectedUnit = useMemo(
+    () => unitsForClass.find((u) => String(u?.unitTitle ?? "").trim() === unitTitle.trim()) ?? null,
+    [unitsForClass, unitTitle]
+  );
+  const selectedUnitFocusOptions = useMemo(() => {
+    if (!selectedUnit || !Array.isArray(selectedUnit.lessonFocuses)) return [];
+    return selectedUnit.lessonFocuses.map((f) => String(f ?? "").trim()).filter(Boolean);
+  }, [selectedUnit]);
+
+  useEffect(() => {
+    const current = unitTitle.trim();
+    if (!current) return;
+    if (unitTitleOptions.includes(current)) return;
+    setUnitTitle("");
+  }, [unitTitle, unitTitleOptions]);
+
+  useEffect(() => {
+    if (!focusMenuOpen) return;
+    const onPointer = (e) => {
+      if (focusMenuWrapRef.current?.contains(e.target)) return;
+      setFocusMenuOpen(false);
+    };
+    window.addEventListener("pointerdown", onPointer);
+    return () => window.removeEventListener("pointerdown", onPointer);
+  }, [focusMenuOpen]);
 
   const field =
     "w-full rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-sm text-slate-900 outline-none focus:border-slate-400";
@@ -3337,6 +3500,7 @@ function SlotLessonDetailOverlay({
     const dm = Number.isFinite(n) && n > 0 ? Math.min(320, Math.round(n)) : 70;
     return {
       durationMins: dm,
+      unitTitle: unitTitle.trim(),
       lessonTopic: lessonTopic.trim(),
       learningIntention: learningIntention.trim(),
       successCriteria: successCriteria.map((s) => String(s).trim()).filter(Boolean),
@@ -3416,14 +3580,68 @@ function SlotLessonDetailOverlay({
         <div className="min-h-0 flex-1 overflow-y-auto px-3 py-2.5">
           <div className="space-y-2.5">
             <div>
+              <label className={lab}>Unit title</label>
+              {unitTitleOptions.length === 0 ? (
+                <p className="rounded-lg border border-slate-200/90 bg-slate-50 px-2.5 py-2 text-[11px] text-slate-500">
+                  No saved units for this class yet.
+                </p>
+              ) : (
+                <select
+                  value={unitTitle}
+                  onChange={(e) => setUnitTitle(e.target.value)}
+                  className={cn(field, "mb-2")}
+                >
+                  <option value="">Select unit title</option>
+                  {unitTitleOptions.map((title) => (
+                    <option key={title} value={title}>
+                      {title}
+                    </option>
+                  ))}
+                </select>
+              )}
               <label className={lab}>Lesson focus</label>
-              <input
-                type="text"
-                value={lessonTopic}
-                onChange={(e) => setLessonTopic(e.target.value)}
-                className={field}
-                placeholder="e.g. Fables — on the card below the line note"
-              />
+              <div ref={focusMenuWrapRef} className="relative">
+                <div className="flex items-center gap-1.5">
+                  <input
+                    type="text"
+                    value={lessonTopic}
+                    onFocus={() => setFocusMenuOpen(true)}
+                    onChange={(e) => {
+                      setLessonTopic(e.target.value);
+                      setFocusMenuOpen(true);
+                    }}
+                    className={cn(field, "min-w-0 flex-1")}
+                    placeholder={DEFAULT_LESSON_FOCUS_PLACEHOLDER}
+                  />
+                  {selectedUnitFocusOptions.length > 0 ? (
+                    <button
+                      type="button"
+                      onClick={() => setFocusMenuOpen((v) => !v)}
+                      className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-slate-200 text-slate-600 transition hover:bg-slate-50"
+                      aria-label="Show lesson focus options"
+                    >
+                      <ChevronDown className={cn("h-4 w-4 transition-transform", focusMenuOpen && "rotate-180")} />
+                    </button>
+                  ) : null}
+                </div>
+                {focusMenuOpen && selectedUnitFocusOptions.length > 0 ? (
+                  <div className="absolute left-0 right-0 top-[calc(100%+4px)] z-20 max-h-44 overflow-y-auto rounded-lg border border-slate-200 bg-white p-1 shadow-lg">
+                    {selectedUnitFocusOptions.map((focus) => (
+                      <button
+                        key={focus}
+                        type="button"
+                        onClick={() => {
+                          setLessonTopic(focus);
+                          setFocusMenuOpen(false);
+                        }}
+                        className="flex w-full rounded-md px-2 py-1.5 text-left text-[12px] text-slate-700 transition hover:bg-slate-50"
+                      >
+                        {focus}
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
               <PlanningLinkPreview text={lessonTopic} />
             </div>
             <div className="grid grid-cols-3 gap-2">
@@ -7698,6 +7916,7 @@ export default function App() {
             setEditingValue={setEditingValue}
             saveInlineEdit={saveInlineEdit}
             cancelInlineEdit={cancelInlineEdit}
+            unitStore={unitStore}
             slotOverlayLessonId={slotOverlayLessonId}
             findLessonInTimetable={findLessonInTimetable}
             findLessonDayNameInTimetable={findLessonDayNameInTimetable}
@@ -7722,6 +7941,7 @@ export default function App() {
               draft={addLessonDraft}
               setDraft={setAddLessonDraft}
               timetable={timetable}
+              unitStore={unitStore}
               onClose={closeAddLessonForm}
               onSubmit={submitAddLessonForm}
             />
