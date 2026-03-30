@@ -12,6 +12,7 @@ const DEFAULT_CLASS_SUBJECT_PLACEHOLDER = "Add class";
 /** Shown when room is empty (timetable cell + room editor). */
 const DEFAULT_ROOM_PLACEHOLDER = "Room";
 const DEFAULT_LESSON_FOCUS_PLACEHOLDER = "Eg: Structure of a Fable";
+const DEFAULT_STICKY_NOTE_COLOR = "#39ff14";
 const DEFAULT_LINE_NOTE_PLACEHOLDER = "Type or Click + to add note";
 /** Timetable card: main note textarea under the line note. */
 const DEFAULT_SLOT_NOTE_PLACEHOLDER = "Type or Click + to add note";
@@ -3081,7 +3082,7 @@ function LessonSlotRow({
       <div className="shrink-0 space-y-0.5">
         <div className="flex w-full items-start gap-1.5">
           <div className="min-w-0 flex-1">
-            <div className="flex min-w-0 max-w-full flex-nowrap items-baseline gap-0">
+            <div className="flex min-w-0 max-w-full flex-wrap items-baseline gap-x-1 gap-y-0.5">
               <input
                 ref={headerInputRef}
                 type="text"
@@ -3132,7 +3133,7 @@ function LessonSlotRow({
                 aria-label="Class and subject"
                 title="Class and subject"
                 className={cn(
-                  "min-w-0 max-w-[calc(100%-4.5rem)] shrink select-text rounded border border-transparent bg-transparent px-0.5 py-0 text-left text-[10px] font-medium text-slate-800 outline-none ring-0 transition placeholder:text-slate-400/70 hover:bg-slate-50/50 focus:border-slate-300/40",
+                  "min-w-0 flex-1 select-text rounded border border-transparent bg-transparent px-0.5 py-0 text-left text-[10px] font-medium text-slate-800 outline-none ring-0 transition placeholder:text-slate-400/70 hover:bg-slate-50/50 focus:border-slate-300/40",
                   isFocusDay && "text-[11px]"
                 )}
               />
@@ -3157,7 +3158,7 @@ function LessonSlotRow({
                   }}
                   placeholder={DEFAULT_ROOM_PLACEHOLDER}
                   className={cn(
-                    "ml-[2ch] w-[3.5rem] shrink-0 select-text rounded-[3px] border border-slate-300 bg-white px-0.5 text-left text-[10px] text-slate-900 outline-none placeholder:text-slate-400/70 sm:w-16",
+                    "w-[3.75rem] shrink-0 select-text rounded-[3px] border border-slate-300 bg-white px-0.5 text-left text-[10px] text-slate-900 outline-none placeholder:text-slate-400/70 sm:w-16",
                     isFocusDay && "text-[11px]"
                   )}
                 />
@@ -3170,7 +3171,7 @@ function LessonSlotRow({
                   }}
                   className={cn(
                     titleHitClass,
-                    "ml-[2ch] max-w-[5rem] shrink-0 truncate text-left text-[10px] sm:max-w-[6rem]",
+                    "max-w-[5.5rem] shrink-0 truncate text-left text-[10px] sm:max-w-[6rem]",
                     roomShowPlaceholder ? "text-slate-400/80" : "text-slate-600",
                     isFocusDay && "text-[11px]"
                   )}
@@ -4753,6 +4754,15 @@ function normalizeStudentNotes(raw) {
   return out;
 }
 
+function normalizeTodaySticky(raw) {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    return { text: "", color: DEFAULT_STICKY_NOTE_COLOR };
+  }
+  const text = String(raw.text ?? "").slice(0, 4000);
+  const color = String(raw.color ?? "").trim() || DEFAULT_STICKY_NOTE_COLOR;
+  return { text, color };
+}
+
 function mergePersistedAppState(raw) {
   const defaultWeek1StartDate = isoDateFromLocalDate(schoolWeekMonday(new Date()));
   const today = new Date();
@@ -4781,6 +4791,7 @@ function mergePersistedAppState(raw) {
     bellReminderSettings: defaultBellReminderSettings(),
     monthViewDayNotes: {},
     studentNotes: [],
+    todaySticky: { text: "", color: DEFAULT_STICKY_NOTE_COLOR },
     week1StartDate: defaultWeek1StartDate,
   };
 
@@ -4978,6 +4989,7 @@ function mergePersistedAppState(raw) {
     bellReminderSettings: normalizeBellReminderSettings(raw.bellReminderSettings ?? defaults.bellReminderSettings),
     monthViewDayNotes: normalizeMonthViewDayNotes(raw.monthViewDayNotes ?? defaults.monthViewDayNotes),
     studentNotes: normalizeStudentNotes(raw.studentNotes ?? defaults.studentNotes),
+    todaySticky: normalizeTodaySticky(raw.todaySticky ?? defaults.todaySticky),
   };
 }
 
@@ -5183,6 +5195,7 @@ export default function App() {
   const [calendarReminders, setCalendarReminders] = useState(initialAppState.calendarReminders);
   const [monthViewDayNotes, setMonthViewDayNotes] = useState(initialAppState.monthViewDayNotes);
   const [studentNotes, setStudentNotes] = useState(initialAppState.studentNotes);
+  const [todaySticky, setTodaySticky] = useState(initialAppState.todaySticky);
   const [selectedCalendarDate, setSelectedCalendarDate] = useState(null);
   const [selectedCalendarReminderId, setSelectedCalendarReminderId] = useState(null);
   const [calendarDraft, setCalendarDraft] = useState("");
@@ -6119,6 +6132,7 @@ export default function App() {
       bellReminderSettings: normalizeBellReminderSettings(bellReminderSettings),
       monthViewDayNotes,
       studentNotes,
+      todaySticky: normalizeTodaySticky(todaySticky),
     };
     try {
       window.localStorage.setItem(TEACHER_STUDIO_STORAGE_KEY, JSON.stringify(payload));
@@ -6154,6 +6168,7 @@ export default function App() {
     bellReminderSettings,
     monthViewDayNotes,
     studentNotes,
+    todaySticky,
   ]);
 
   const handleMonthViewDayNoteCommit = useCallback((noteKey, text) => {
@@ -7005,6 +7020,7 @@ export default function App() {
           bellReminderSettings: normalizeBellReminderSettings(fresh.bellReminderSettings),
           monthViewDayNotes: {},
           studentNotes: [],
+          todaySticky: { text: "", color: DEFAULT_STICKY_NOTE_COLOR },
         };
         writeTeacherStudioSnapshotToLocalStorage({
           app,
@@ -7033,6 +7049,7 @@ export default function App() {
     setSelectedWeek("Week 1");
     setSelectedDay("Monday");
     setCalendarMonth({ year: resetCalendarMonthDate.getFullYear(), month: resetCalendarMonthDate.getMonth() });
+    setTodaySticky({ text: "", color: DEFAULT_STICKY_NOTE_COLOR });
     if (startNewTermChoice === "fresh") {
       setUnitStore({ byClass: {} });
       writeUnitPlannerToStorage({ byClass: {} });
@@ -7079,6 +7096,7 @@ export default function App() {
       bellReminderSettings: normalizeBellReminderSettings(bellReminderSettings),
       monthViewDayNotes,
       studentNotes,
+      todaySticky: normalizeTodaySticky(todaySticky),
     };
     const wt = window.localStorage.getItem(WEEK_TEMPLATE_STORAGE_KEY);
     return {
@@ -7872,6 +7890,8 @@ export default function App() {
             toggleUtilitiesMenu={toggleUtilitiesMenu}
             utilitiesMenuOpen={utilitiesMenuOpen}
             focusSidebarSearch={focusSidebarSearch}
+            todaySticky={todaySticky}
+            setTodaySticky={setTodaySticky}
             viewMode={viewMode}
             setViewMode={setViewMode}
             calendarMonth={calendarMonth}

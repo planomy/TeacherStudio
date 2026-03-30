@@ -13,6 +13,25 @@ const CAL_DAY_NAMES = [
   "Saturday",
 ];
 const SCHOOL_WEEKDAYS = new Set(["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]);
+const STICKY_COLOR_OPTIONS = ["#39ff14", "#fffb00", "#ff4fd8", "#00f5ff", "#ff7f11"];
+
+function parseLessonRangeMinutes(timeText) {
+  const t = String(timeText ?? "");
+  const matches = [...t.matchAll(/(\d{1,2}):(\d{2})/g)];
+  if (matches.length < 2) return null;
+  const toMins = (hh, mm) => Number(hh) * 60 + Number(mm);
+  const start = toMins(matches[0][1], matches[0][2]);
+  const end = toMins(matches[1][1], matches[1][2]);
+  if (!Number.isFinite(start) || !Number.isFinite(end)) return null;
+  return { start, end };
+}
+
+function lessonCommandLabel(lesson) {
+  const c = String(lesson?.classGroup ?? "").trim();
+  const s = String(lesson?.subject ?? "").trim();
+  const label = [c, s].filter(Boolean).join(" ").replace(/\s+/g, " ").trim();
+  return label || "Unassigned class";
+}
 
 function monthViewDayNoteKey(year, monthZero, dayNum) {
   return `${year}-${String(monthZero + 1).padStart(2, "0")}-${String(dayNum).padStart(2, "0")}`;
@@ -232,6 +251,8 @@ export function TimetableStudioPanel({
   toggleUtilitiesMenu,
   utilitiesMenuOpen,
   focusSidebarSearch,
+  todaySticky,
+  setTodaySticky,
   viewMode,
   setViewMode,
   calendarMonth,
@@ -308,6 +329,9 @@ export function TimetableStudioPanel({
   const weekPickerTriggerRef = useRef(null);
   const [weekPickerOpen, setWeekPickerOpen] = useState(false);
   const [weekMenuPos, setWeekMenuPos] = useState(null);
+  const [stickyOpen, setStickyOpen] = useState(false);
+  const [stickyCompact, setStickyCompact] = useState(false);
+  const stickyWrapRef = useRef(null);
 
   const updateWeekMenuPosition = useCallback(() => {
     const el = weekPickerTriggerRef.current;
@@ -341,6 +365,33 @@ export function TimetableStudioPanel({
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
   }, [weekPickerOpen]);
+
+  const todayName = CAL_DAY_NAMES[new Date().getDay()] ?? "";
+  const commandDayName = SCHOOL_WEEKDAYS.has(todayName) ? todayName : selectedDay;
+  const commandDayRow = timetable.find((d) => d.day === commandDayName) ?? null;
+  const commandLessons = useMemo(() => {
+    if (!commandDayRow) return [];
+    return (commandDayRow.items ?? [])
+      .filter((item) => item.type === "lesson")
+      .map((lesson) => {
+        const range = parseLessonRangeMinutes(lesson.time);
+        return {
+          lesson,
+          start: range?.start ?? Number.POSITIVE_INFINITY,
+          end: range?.end ?? Number.POSITIVE_INFINITY,
+        };
+      })
+      .sort((a, b) => a.start - b.start);
+  }, [commandDayRow]);
+  const nowMins = new Date().getHours() * 60 + new Date().getMinutes();
+  const nowSlot = commandLessons.find((x) => Number.isFinite(x.start) && Number.isFinite(x.end) && nowMins >= x.start && nowMins < x.end) ?? null;
+  const nextSlot =
+    commandLessons.find((x) => Number.isFinite(x.start) && x.start > nowMins) ??
+    (nowSlot ? null : commandLessons.find((x) => Number.isFinite(x.start))) ??
+    null;
+  const actionSlot = nowSlot ?? nextSlot ?? commandLessons[0] ?? null;
+  const nowLabel = nowSlot ? lessonCommandLabel(nowSlot.lesson) : "No class right now";
+  const nextLabel = nextSlot ? lessonCommandLabel(nextSlot.lesson) : "No upcoming class";
 
   return (
     <div className="relative h-[calc(100vh-2rem)] overflow-hidden rounded-[5px] border border-white/60 bg-gradient-to-br from-white via-zinc-50 to-slate-100 shadow-inner">
@@ -401,6 +452,181 @@ export function TimetableStudioPanel({
               </div>
             )}
           </div>
+
+          {!focusMode && (
+            <div className="rounded-[5px] border border-slate-200 bg-white/85 px-3 py-2 shadow-sm">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-1 text-[10px] font-semibold text-slate-600">
+                  Today · {commandDayName}
+                </span>
+                <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-1 text-[10px] font-semibold text-emerald-800">
+                  Now: {nowLabel}
+                </span>
+                <span className="rounded-full border border-sky-200 bg-sky-50 px-2 py-1 text-[10px] font-semibold text-sky-800">
+                  Next: {nextLabel}
+                </span>
+                <span className="ml-auto rounded-full border border-slate-200 bg-white px-2 py-1 text-[10px] font-semibold text-slate-700">
+                  Timer {formattedTimer}
+                </span>
+                <button
+                  type="button"
+                  onClick={handleTimerToggle}
+                  className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[10px] font-semibold text-slate-700 transition hover:bg-slate-50"
+                >
+                  {timerRunning ? "Pause" : "Start"}
+                </button>
+                <button
+                  type="button"
+                  onClick={handleTimerReset}
+                  className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[10px] font-semibold text-slate-700 transition hover:bg-slate-50"
+                >
+                  Reset
+                </button>
+                <button
+                  type="button"
+                  onClick={() => openCalendarFromLessonSlot(commandDayName, "reminder", actionSlot ? lessonCommandLabel(actionSlot.lesson) : "")}
+                  className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[10px] font-semibold text-slate-700 transition hover:bg-slate-50"
+                >
+                  + Reminder
+                </button>
+                <div ref={stickyWrapRef} className="relative">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (!stickyOpen) {
+                        setStickyOpen(true);
+                        setStickyCompact(false);
+                        return;
+                      }
+                      if (stickyCompact) {
+                        setStickyCompact(false);
+                        return;
+                      }
+                      setStickyOpen(false);
+                    }}
+                    className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[10px] font-semibold text-slate-700 transition hover:bg-slate-50"
+                  >
+                    + Sticky
+                  </button>
+                  {stickyOpen ? (
+                    stickyCompact ? (
+                      <div
+                        className="absolute right-0 top-[calc(100%+6px)] z-30 w-[min(80vw,12.5rem)] rounded-md border border-black/20 px-2 py-1.5 shadow-xl"
+                        style={{ backgroundColor: todaySticky?.color || "#39ff14" }}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setStickyCompact(false);
+                        }}
+                      >
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setStickyOpen(false);
+                          }}
+                          className="absolute right-1 top-1 rounded px-1 text-[10px] font-semibold text-black/70 transition hover:bg-black/10 hover:text-black"
+                          aria-label="Close sticky note"
+                        >
+                          ×
+                        </button>
+                        <p className="whitespace-pre-wrap break-words pr-4 text-[12px] font-medium leading-snug text-black">
+                          {(todaySticky?.text ?? "").trim() || "Sticky note"}
+                        </p>
+                      </div>
+                    ) : (
+                      <div
+                        className="absolute right-0 top-[calc(100%+6px)] z-30 w-[min(80vw,12.5rem)] rounded-lg border border-slate-300 bg-white p-2 shadow-xl"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <div className="mb-1 flex items-center justify-between gap-2">
+                          <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Sticky note</p>
+                          <div className="flex items-center gap-1">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if ((todaySticky?.text ?? "").trim()) setStickyCompact(true);
+                              }}
+                              className={cn(
+                                "rounded px-1.5 py-0.5 text-[10px] font-semibold transition",
+                                (todaySticky?.text ?? "").trim()
+                                  ? "text-emerald-700 hover:bg-emerald-50"
+                                  : "cursor-not-allowed text-slate-300"
+                              )}
+                              aria-label="Pin sticky note"
+                            >
+                              ✓
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setStickyOpen(false)}
+                              className="rounded px-1.5 py-0.5 text-[10px] font-medium text-slate-500 transition hover:bg-slate-100 hover:text-slate-700"
+                              aria-label="Close sticky note"
+                            >
+                              ×
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setTodaySticky({ text: "", color: "#39ff14" });
+                                setStickyOpen(false);
+                                setStickyCompact(false);
+                              }}
+                              className="rounded px-1.5 py-0.5 text-[10px] font-medium text-red-600 transition hover:bg-red-50"
+                            >
+                              Delete
+                            </button>
+                          </div>
+                        </div>
+                        <textarea
+                          value={todaySticky?.text ?? ""}
+                          onChange={(e) =>
+                            setTodaySticky((prev) => ({
+                              text: e.target.value,
+                              color: prev?.color || "#39ff14",
+                            }))
+                          }
+                          rows={3}
+                          placeholder="Type sticky note..."
+                          className="w-full resize-y rounded-md border border-black/20 px-2 py-1.5 text-[12px] text-slate-900 outline-none focus:border-black/40"
+                          style={{ backgroundColor: todaySticky?.color || "#39ff14" }}
+                        />
+                        <div className="mt-2 flex items-center gap-1">
+                          {STICKY_COLOR_OPTIONS.map((c) => (
+                            <button
+                              key={c}
+                              type="button"
+                              onClick={() =>
+                                setTodaySticky((prev) => ({
+                                  text: prev?.text ?? "",
+                                  color: c,
+                                }))
+                              }
+                              className={cn(
+                                "h-5 w-5 rounded-sm border transition",
+                                (todaySticky?.color || "#39ff14") === c ? "border-black ring-1 ring-black/30" : "border-slate-300"
+                              )}
+                              style={{ backgroundColor: c }}
+                              aria-label="Set sticky colour"
+                            />
+                          ))}
+                        </div>
+                      </div>
+                    )
+                  ) : null}
+                </div>
+                <button
+                  type="button"
+                  disabled={!actionSlot}
+                  onClick={() =>
+                    actionSlot && openStudentNoteEntryForLesson(actionSlot.lesson, commandDayName)
+                  }
+                  className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[10px] font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  + Student Note
+                </button>
+              </div>
+            </div>
+          )}
 
           {!focusMode && (
             <div className="flex w-full min-w-0 flex-wrap items-stretch justify-start gap-2">
