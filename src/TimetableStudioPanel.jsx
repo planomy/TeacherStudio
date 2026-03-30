@@ -893,7 +893,8 @@ export function TimetableStudioPanel({
                   key={day.day}
                   className={cn(
                     "relative flex min-h-0 flex-col rounded-[5px] border border-slate-800 bg-white/60 p-2 shadow-sm",
-                    focusMode && "p-3"
+                    focusMode && "p-3",
+                    viewMode === "day" && "w-full md:w-1/2 md:justify-self-center"
                   )}
                 >
                   <div className="mb-2 flex items-center justify-between gap-2">
