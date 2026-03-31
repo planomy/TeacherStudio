@@ -4755,12 +4755,24 @@ function normalizeStudentNotes(raw) {
 }
 
 function normalizeTodaySticky(raw) {
-  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
-    return { text: "", color: DEFAULT_STICKY_NOTE_COLOR };
-  }
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
   const text = String(raw.text ?? "").slice(0, 4000);
   const color = String(raw.color ?? "").trim() || DEFAULT_STICKY_NOTE_COLOR;
-  return { text, color };
+  if (!text.trim()) return null;
+  return {
+    id: typeof raw.id === "string" && raw.id ? raw.id : `sticky-${Date.now().toString(36)}`,
+    text,
+    color,
+    compact: raw.compact !== false,
+  };
+}
+
+function normalizeTodayStickies(raw, legacySticky) {
+  if (Array.isArray(raw)) {
+    return raw.map((item) => normalizeTodaySticky(item)).filter(Boolean);
+  }
+  const legacy = normalizeTodaySticky(legacySticky);
+  return legacy ? [legacy] : [];
 }
 
 function mergePersistedAppState(raw) {
@@ -4791,7 +4803,7 @@ function mergePersistedAppState(raw) {
     bellReminderSettings: defaultBellReminderSettings(),
     monthViewDayNotes: {},
     studentNotes: [],
-    todaySticky: { text: "", color: DEFAULT_STICKY_NOTE_COLOR },
+    todayStickies: [],
     week1StartDate: defaultWeek1StartDate,
   };
 
@@ -4989,7 +5001,7 @@ function mergePersistedAppState(raw) {
     bellReminderSettings: normalizeBellReminderSettings(raw.bellReminderSettings ?? defaults.bellReminderSettings),
     monthViewDayNotes: normalizeMonthViewDayNotes(raw.monthViewDayNotes ?? defaults.monthViewDayNotes),
     studentNotes: normalizeStudentNotes(raw.studentNotes ?? defaults.studentNotes),
-    todaySticky: normalizeTodaySticky(raw.todaySticky ?? defaults.todaySticky),
+    todayStickies: normalizeTodayStickies(raw.todayStickies, raw.todaySticky),
   };
 }
 
@@ -5195,7 +5207,8 @@ export default function App() {
   const [calendarReminders, setCalendarReminders] = useState(initialAppState.calendarReminders);
   const [monthViewDayNotes, setMonthViewDayNotes] = useState(initialAppState.monthViewDayNotes);
   const [studentNotes, setStudentNotes] = useState(initialAppState.studentNotes);
-  const [todaySticky, setTodaySticky] = useState(initialAppState.todaySticky);
+  const [todayStickies, setTodayStickies] = useState(initialAppState.todayStickies);
+  const [saveStatus, setSaveStatus] = useState("saved");
   const [selectedCalendarDate, setSelectedCalendarDate] = useState(null);
   const [selectedCalendarReminderId, setSelectedCalendarReminderId] = useState(null);
   const [calendarDraft, setCalendarDraft] = useState("");
@@ -5212,6 +5225,7 @@ export default function App() {
   const [timerRunning, setTimerRunning] = useState(initialAppState.timerRunning);
   const [baseTimetable, setBaseTimetable] = useState(initialAppState.baseTimetable);
   const [weekLessonOverlays, setWeekLessonOverlays] = useState(initialAppState.weekLessonOverlays);
+  const saveStatusTimerRef = useRef(null);
 
   const timetableDataRef = useRef({
     baseTimetable: initialAppState.baseTimetable,
@@ -6103,6 +6117,11 @@ export default function App() {
     } catch {
       /* ignore */
     }
+    setSaveStatus("saving");
+    if (saveStatusTimerRef.current) {
+      clearTimeout(saveStatusTimerRef.current);
+      saveStatusTimerRef.current = null;
+    }
     const payload = {
       v: 1,
       sidebarCollapsed,
@@ -6132,12 +6151,16 @@ export default function App() {
       bellReminderSettings: normalizeBellReminderSettings(bellReminderSettings),
       monthViewDayNotes,
       studentNotes,
-      todaySticky: normalizeTodaySticky(todaySticky),
+      todayStickies: normalizeTodayStickies(todayStickies),
     };
     try {
       window.localStorage.setItem(TEACHER_STUDIO_STORAGE_KEY, JSON.stringify(payload));
       window.localStorage.setItem(TEACHER_STUDIO_FONT_STORAGE_KEY, String(fontScale));
+      saveStatusTimerRef.current = window.setTimeout(() => {
+        setSaveStatus("saved");
+      }, 260);
     } catch {
+      setSaveStatus("error");
       /* quota / private mode */
     }
   }, [
@@ -6168,8 +6191,15 @@ export default function App() {
     bellReminderSettings,
     monthViewDayNotes,
     studentNotes,
-    todaySticky,
+    todayStickies,
   ]);
+
+  useEffect(
+    () => () => {
+      if (saveStatusTimerRef.current) clearTimeout(saveStatusTimerRef.current);
+    },
+    []
+  );
 
   const handleMonthViewDayNoteCommit = useCallback((noteKey, text) => {
     const trimmed = text.trim().slice(0, 2000);
@@ -7020,7 +7050,7 @@ export default function App() {
           bellReminderSettings: normalizeBellReminderSettings(fresh.bellReminderSettings),
           monthViewDayNotes: {},
           studentNotes: [],
-          todaySticky: { text: "", color: DEFAULT_STICKY_NOTE_COLOR },
+          todayStickies: [],
         };
         writeTeacherStudioSnapshotToLocalStorage({
           app,
@@ -7049,7 +7079,7 @@ export default function App() {
     setSelectedWeek("Week 1");
     setSelectedDay("Monday");
     setCalendarMonth({ year: resetCalendarMonthDate.getFullYear(), month: resetCalendarMonthDate.getMonth() });
-    setTodaySticky({ text: "", color: DEFAULT_STICKY_NOTE_COLOR });
+    setTodayStickies([]);
     if (startNewTermChoice === "fresh") {
       setUnitStore({ byClass: {} });
       writeUnitPlannerToStorage({ byClass: {} });
@@ -7096,7 +7126,7 @@ export default function App() {
       bellReminderSettings: normalizeBellReminderSettings(bellReminderSettings),
       monthViewDayNotes,
       studentNotes,
-      todaySticky: normalizeTodaySticky(todaySticky),
+      todayStickies: normalizeTodayStickies(todayStickies),
     };
     const wt = window.localStorage.getItem(WEEK_TEMPLATE_STORAGE_KEY);
     return {
@@ -7549,7 +7579,7 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-zinc-50 font-sans text-white" style={{ fontFamily: "Inter, sans-serif" }}>
-      <div className="relative flex min-h-screen overflow-hidden">
+      <div className="relative flex min-h-screen overflow-x-hidden overflow-y-auto md:overflow-hidden">
         <AnimatePresence>
           {!focusMode && (
             <motion.aside
@@ -7886,12 +7916,13 @@ export default function App() {
             fontScaleMax={FONT_SCALE_MAX}
             fontScaleStep={FONT_SCALE_STEP}
             fontScale={fontScale}
+            saveStatus={saveStatus}
             utilitiesBtnRef={utilitiesBtnRef}
             toggleUtilitiesMenu={toggleUtilitiesMenu}
             utilitiesMenuOpen={utilitiesMenuOpen}
             focusSidebarSearch={focusSidebarSearch}
-            todaySticky={todaySticky}
-            setTodaySticky={setTodaySticky}
+            todayStickies={todayStickies}
+            setTodayStickies={setTodayStickies}
             viewMode={viewMode}
             setViewMode={setViewMode}
             calendarMonth={calendarMonth}

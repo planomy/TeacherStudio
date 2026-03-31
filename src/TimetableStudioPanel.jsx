@@ -14,6 +14,10 @@ const CAL_DAY_NAMES = [
 ];
 const SCHOOL_WEEKDAYS = new Set(["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]);
 const STICKY_COLOR_OPTIONS = ["#39ff14", "#fffb00", "#ff4fd8", "#00f5ff", "#ff7f11"];
+const STICKY_EDITOR_DEFAULT_WIDTH = 240;
+const STICKY_EDITOR_DEFAULT_HEIGHT = 160;
+const STICKY_EDITOR_MIN_WIDTH = 192;
+const STICKY_EDITOR_MIN_HEIGHT = 120;
 
 function parseLessonRangeMinutes(timeText) {
   const t = String(timeText ?? "");
@@ -247,12 +251,13 @@ export function TimetableStudioPanel({
   fontScaleMax,
   fontScaleStep,
   fontScale,
+  saveStatus,
   utilitiesBtnRef,
   toggleUtilitiesMenu,
   utilitiesMenuOpen,
   focusSidebarSearch,
-  todaySticky,
-  setTodaySticky,
+  todayStickies,
+  setTodayStickies,
   viewMode,
   setViewMode,
   calendarMonth,
@@ -329,8 +334,7 @@ export function TimetableStudioPanel({
   const weekPickerTriggerRef = useRef(null);
   const [weekPickerOpen, setWeekPickerOpen] = useState(false);
   const [weekMenuPos, setWeekMenuPos] = useState(null);
-  const [stickyOpen, setStickyOpen] = useState(false);
-  const [stickyCompact, setStickyCompact] = useState(false);
+  const [activeStickyId, setActiveStickyId] = useState(null);
   const stickyWrapRef = useRef(null);
 
   const updateWeekMenuPosition = useCallback(() => {
@@ -392,12 +396,56 @@ export function TimetableStudioPanel({
   const actionSlot = nowSlot ?? nextSlot ?? commandLessons[0] ?? null;
   const nowLabel = nowSlot ? lessonCommandLabel(nowSlot.lesson) : "No class right now";
   const nextLabel = nextSlot ? lessonCommandLabel(nextSlot.lesson) : "No upcoming class";
+  const stickyViewportWidth = typeof window !== "undefined" ? window.innerWidth : 1200;
+  const stickyViewportHeight = typeof window !== "undefined" ? window.innerHeight : 800;
+  const stickyEditorMaxWidth = Math.max(STICKY_EDITOR_MIN_WIDTH, Math.floor(stickyViewportWidth * 0.88));
+  const stickyAnchorRect = stickyWrapRef.current?.getBoundingClientRect() ?? null;
+  const stickySpaceAbove = stickyAnchorRect
+    ? Math.max(120, Math.floor(stickyAnchorRect.top - 14))
+    : Math.floor(stickyViewportHeight * 0.55);
+  const stickySpaceBelow = stickyAnchorRect
+    ? Math.max(120, Math.floor(stickyViewportHeight - stickyAnchorRect.bottom - 14))
+    : Math.floor(stickyViewportHeight * 0.35);
+  const stickyPreferBelow = stickySpaceAbove < STICKY_EDITOR_DEFAULT_HEIGHT && stickySpaceBelow > stickySpaceAbove;
+  const stickyEditorMaxHeight = Math.max(
+    STICKY_EDITOR_MIN_HEIGHT,
+    Math.floor((stickyPreferBelow ? stickySpaceBelow : stickySpaceAbove) * 0.96)
+  );
+  const stickyChipFlexBasis = useMemo(() => {
+    const count = Math.max(1, todayStickies.length);
+    if (count <= 2) return 152;
+    if (count <= 4) return 124;
+    if (count <= 6) return 104;
+    return 88;
+  }, [todayStickies.length]);
+  const activeSticky = useMemo(
+    () => todayStickies.find((item) => item.id === activeStickyId) ?? null,
+    [todayStickies, activeStickyId]
+  );
+
+  useEffect(() => {
+    if (!activeStickyId) return;
+    if (!todayStickies.some((item) => item.id === activeStickyId)) {
+      setActiveStickyId(null);
+    }
+  }, [todayStickies, activeStickyId]);
+
+  useEffect(() => {
+    if (!activeStickyId) return;
+    const onPointerDown = (event) => {
+      if (!stickyWrapRef.current) return;
+      if (stickyWrapRef.current.contains(event.target)) return;
+      setActiveStickyId(null);
+    };
+    document.addEventListener("pointerdown", onPointerDown);
+    return () => document.removeEventListener("pointerdown", onPointerDown);
+  }, [activeStickyId]);
 
   return (
-    <div className="relative h-[calc(100vh-2rem)] overflow-hidden rounded-[5px] border border-white/60 bg-gradient-to-br from-white via-zinc-50 to-slate-100 shadow-inner">
+    <div className="relative min-h-[calc(100vh-2rem)] overflow-visible rounded-[5px] border border-white/60 bg-gradient-to-br from-white via-zinc-50 to-slate-100 shadow-inner md:h-[calc(100vh-2rem)] md:overflow-hidden">
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,_rgba(15,23,42,0.05),_transparent_35%),radial-gradient(circle_at_bottom_right,_rgba(148,163,184,0.12),_transparent_30%)]" />
 
-      <div className="relative z-10 flex h-full flex-col px-4 pt-4 pb-0 lg:px-6 lg:pt-6 lg:pb-0">
+      <div className="relative z-10 flex min-h-[calc(100vh-2rem)] flex-col px-4 pb-0 pt-4 md:h-full md:min-h-0 lg:px-6 lg:pb-0 lg:pt-6">
         <div className="mb-4 flex w-full flex-col gap-4">
           <div className="flex w-full items-start justify-between gap-3">
             <div className="min-w-0 flex-1">
@@ -410,52 +458,74 @@ export function TimetableStudioPanel({
               )}
             </div>
             {!focusMode && (
-              <div className="flex shrink-0 items-center gap-1 rounded-[5px] border border-slate-300 bg-white/85 p-1.5 shadow-sm">
-                <button
-                  type="button"
-                  onClick={() => bumpFontScale(-fontScaleStep)}
-                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-slate-300 bg-white text-xs font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
-                  disabled={fontScale <= fontScaleMin}
-                  title="Smaller text"
-                  aria-label="Decrease text size"
-                >
-                  A−
-                </button>
-                <button
-                  type="button"
-                  onClick={() => bumpFontScale(fontScaleStep)}
-                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-slate-300 bg-white text-xs font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
-                  disabled={fontScale >= fontScaleMax}
-                  title="Larger text"
-                  aria-label="Increase text size"
-                >
-                  A+
-                </button>
-                <button
-                  ref={utilitiesBtnRef}
-                  type="button"
-                  data-utilities-trigger
-                  onClick={toggleUtilitiesMenu}
+              <div className="flex shrink-0 items-center gap-2">
+                <div
                   className={cn(
-                    "flex h-9 w-9 shrink-0 items-center justify-center rounded-full border shadow-sm transition",
-                    utilitiesMenuOpen
-                      ? "border-slate-800 bg-slate-800 text-white"
-                      : "border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
+                    "inline-flex h-8 items-center gap-1.5 rounded-full border bg-white/85 px-2.5 text-[10px] font-semibold shadow-sm transition",
+                    saveStatus === "saving" && "border-amber-200 text-amber-700",
+                    saveStatus === "saved" && "border-emerald-200 text-emerald-700",
+                    saveStatus === "error" && "border-red-200 text-red-700"
                   )}
-                  title="Utilities"
-                  aria-label="Utilities"
-                  aria-expanded={utilitiesMenuOpen}
-                  aria-haspopup="menu"
+                  aria-live="polite"
+                  aria-atomic="true"
                 >
-                  <Wrench className="h-4 w-4" />
-                </button>
+                  <span
+                    className={cn(
+                      "h-1.5 w-1.5 rounded-full",
+                      saveStatus === "saving" && "bg-amber-500 animate-pulse",
+                      saveStatus === "saved" && "bg-emerald-500",
+                      saveStatus === "error" && "bg-red-500"
+                    )}
+                  />
+                  {saveStatus === "saving" ? "Saving..." : saveStatus === "error" ? "Save issue" : "Saved"}
+                </div>
+                <div className="flex items-center gap-1 rounded-[5px] border border-slate-300 bg-white/85 p-1.5 shadow-sm">
+                  <button
+                    type="button"
+                    onClick={() => bumpFontScale(-fontScaleStep)}
+                    className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-slate-300 bg-white text-xs font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+                    disabled={fontScale <= fontScaleMin}
+                    title="Smaller text"
+                    aria-label="Decrease text size"
+                  >
+                    A−
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => bumpFontScale(fontScaleStep)}
+                    className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-slate-300 bg-white text-xs font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+                    disabled={fontScale >= fontScaleMax}
+                    title="Larger text"
+                    aria-label="Increase text size"
+                  >
+                    A+
+                  </button>
+                  <button
+                    ref={utilitiesBtnRef}
+                    type="button"
+                    data-utilities-trigger
+                    onClick={toggleUtilitiesMenu}
+                    className={cn(
+                      "flex h-9 w-9 shrink-0 items-center justify-center rounded-full border shadow-sm transition",
+                      utilitiesMenuOpen
+                        ? "border-slate-800 bg-slate-800 text-white"
+                        : "border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
+                    )}
+                    title="Utilities"
+                    aria-label="Utilities"
+                    aria-expanded={utilitiesMenuOpen}
+                    aria-haspopup="menu"
+                  >
+                    <Wrench className="h-4 w-4" />
+                  </button>
+                </div>
               </div>
             )}
           </div>
 
           {!focusMode && (
             <div className="rounded-[5px] border border-slate-200 bg-white/85 px-3 py-2 shadow-sm">
-              <div className="flex flex-wrap items-center gap-2">
+              <div className="flex min-h-10 flex-wrap items-center gap-2">
                 <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-1 text-[10px] font-semibold text-slate-600">
                   Today · {commandDayName}
                 </span>
@@ -465,145 +535,200 @@ export function TimetableStudioPanel({
                 <span className="rounded-full border border-sky-200 bg-sky-50 px-2 py-1 text-[10px] font-semibold text-sky-800">
                   Next: {nextLabel}
                 </span>
-                <span className="ml-auto rounded-full border border-slate-200 bg-white px-2 py-1 text-[10px] font-semibold text-slate-700">
-                  Timer {formattedTimer}
-                </span>
-                <button
-                  type="button"
-                  onClick={handleTimerToggle}
-                  className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[10px] font-semibold text-slate-700 transition hover:bg-slate-50"
-                >
-                  {timerRunning ? "Pause" : "Start"}
-                </button>
-                <button
-                  type="button"
-                  onClick={handleTimerReset}
-                  className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[10px] font-semibold text-slate-700 transition hover:bg-slate-50"
-                >
-                  Reset
-                </button>
-                <button
-                  type="button"
-                  onClick={() => openCalendarFromLessonSlot(commandDayName, "reminder", actionSlot ? lessonCommandLabel(actionSlot.lesson) : "")}
-                  className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[10px] font-semibold text-slate-700 transition hover:bg-slate-50"
-                >
-                  + Reminder
-                </button>
-                <div ref={stickyWrapRef} className="relative">
+                <div ref={stickyWrapRef} className="relative ml-auto flex min-w-0 flex-1 items-center justify-end gap-2">
+                  <div className="flex min-w-0 flex-1 items-center justify-end gap-1 overflow-hidden pr-1">
+                    {todayStickies.map((sticky) => (
+                      <button
+                        key={sticky.id}
+                        type="button"
+                        onClick={() => setActiveStickyId((prev) => (prev === sticky.id ? null : sticky.id))}
+                        className={cn(
+                          "inline-flex h-9 min-w-0 items-center gap-1 rounded-md border border-black/15 px-2 shadow-sm",
+                          activeStickyId === sticky.id && "ring-1 ring-black/30"
+                        )}
+                        style={{
+                          backgroundColor: sticky.color || "#39ff14",
+                          flex: `1 1 ${stickyChipFlexBasis}px`,
+                          maxWidth: `${stickyChipFlexBasis + 32}px`,
+                        }}
+                        title={(sticky.text ?? "").trim() || "Sticky note"}
+                      >
+                        <span className="min-w-0 flex-1 truncate text-[11px] font-semibold text-black/85">
+                          {(sticky.text ?? "").trim() || "Sticky note"}
+                        </span>
+                        <span
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setTodayStickies((prev) => prev.filter((item) => item.id !== sticky.id));
+                          }}
+                          className="rounded px-1 text-[11px] font-semibold text-black/65 transition hover:bg-black/10 hover:text-black"
+                          aria-label="Delete sticky"
+                        >
+                          ×
+                        </span>
+                      </button>
+                    ))}
+                  </div>
                   <button
                     type="button"
                     onClick={() => {
-                      if (!stickyOpen) {
-                        setStickyOpen(true);
-                        setStickyCompact(false);
-                        return;
-                      }
-                      if (stickyCompact) {
-                        setStickyCompact(false);
-                        return;
-                      }
-                      setStickyOpen(false);
+                      const id = `sticky-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
+                      setTodayStickies((prev) => [...prev, { id, text: "", color: "#39ff14", compact: false }]);
+                      setActiveStickyId(id);
                     }}
                     className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[10px] font-semibold text-slate-700 transition hover:bg-slate-50"
                   >
                     + Sticky
                   </button>
-                  {stickyOpen ? (
-                    stickyCompact ? (
+                  {activeSticky ? (
+                    activeSticky.compact ? (
                       <div
-                        className="absolute right-0 top-[calc(100%+6px)] z-30 w-[min(80vw,12.5rem)] rounded-md border border-black/20 px-2 py-1.5 shadow-xl"
-                        style={{ backgroundColor: todaySticky?.color || "#39ff14" }}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setStickyCompact(false);
+                        className="absolute right-0 z-30 min-h-[3rem] min-w-[11rem] max-w-[18rem] rounded-md border border-black/20 px-2 py-1 shadow-xl"
+                        style={{
+                          backgroundColor: activeSticky.color || "#39ff14",
+                          ...(stickyPreferBelow
+                            ? { top: "calc(100% + 6px)" }
+                            : { bottom: "calc(100% + 6px)" }),
                         }}
+                        onClick={() =>
+                          setTodayStickies((prev) =>
+                            prev.map((item) =>
+                              item.id === activeSticky.id ? { ...item, compact: false } : item
+                            )
+                          )
+                        }
                       >
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setStickyOpen(false);
-                          }}
-                          className="absolute right-1 top-1 rounded px-1 text-[10px] font-semibold text-black/70 transition hover:bg-black/10 hover:text-black"
-                          aria-label="Close sticky note"
-                        >
-                          ×
-                        </button>
-                        <p className="whitespace-pre-wrap break-words pr-4 text-[12px] font-medium leading-snug text-black">
-                          {(todaySticky?.text ?? "").trim() || "Sticky note"}
+                        <div className="flex items-center justify-end">
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setActiveStickyId(null);
+                            }}
+                            className="rounded px-1 text-[10px] font-semibold text-black/70 transition hover:bg-black/10 hover:text-black"
+                            aria-label="Close sticky"
+                          >
+                            ×
+                          </button>
+                        </div>
+                        <p className="-mt-0.5 whitespace-pre-wrap break-words text-[12px] font-medium leading-snug text-black">
+                          {activeSticky.text}
                         </p>
                       </div>
                     ) : (
                       <div
-                        className="absolute right-0 top-[calc(100%+6px)] z-30 w-[min(80vw,12.5rem)] rounded-lg border border-slate-300 bg-white p-2 shadow-xl"
+                        className="absolute right-0 z-30 flex min-h-[10rem] min-w-[12rem] max-w-[20rem] flex-col overflow-visible rounded-lg border border-slate-300 bg-white p-2 shadow-xl"
+                        style={{
+                          width: `${Math.min(
+                            stickyEditorMaxWidth,
+                            Math.max(
+                              STICKY_EDITOR_MIN_WIDTH,
+                              activeSticky.editorWidth && activeSticky.editorWidth > 0
+                                ? activeSticky.editorWidth
+                                : STICKY_EDITOR_DEFAULT_WIDTH
+                            )
+                          )}px`,
+                          minHeight: `${Math.min(
+                            stickyEditorMaxHeight,
+                            Math.max(
+                              STICKY_EDITOR_MIN_HEIGHT,
+                              activeSticky.editorHeight && activeSticky.editorHeight > 0
+                                ? activeSticky.editorHeight
+                                : STICKY_EDITOR_DEFAULT_HEIGHT
+                            )
+                          )}px`,
+                          ...(stickyPreferBelow
+                            ? { top: "calc(100% + 6px)" }
+                            : { bottom: "calc(100% + 6px)" }),
+                        }}
+                        onMouseUp={(e) => {
+                          const rect = e.currentTarget.getBoundingClientRect();
+                          setTodayStickies((prev) =>
+                            prev.map((item) =>
+                              item.id === activeSticky.id
+                                ? {
+                                    ...item,
+                                    editorWidth: Math.min(stickyEditorMaxWidth, Math.max(STICKY_EDITOR_MIN_WIDTH, Math.round(rect.width))),
+                                    editorHeight: Math.min(stickyEditorMaxHeight, Math.max(STICKY_EDITOR_MIN_HEIGHT, Math.round(rect.height))),
+                                  }
+                                : item
+                            )
+                          );
+                        }}
                         onClick={(e) => e.stopPropagation()}
                       >
-                        <div className="mb-1 flex items-center justify-between gap-2">
-                          <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Sticky note</p>
-                          <div className="flex items-center gap-1">
-                            <button
-                              type="button"
-                              onClick={() => {
-                                if ((todaySticky?.text ?? "").trim()) setStickyCompact(true);
-                              }}
-                              className={cn(
-                                "rounded px-1.5 py-0.5 text-[10px] font-semibold transition",
-                                (todaySticky?.text ?? "").trim()
-                                  ? "text-emerald-700 hover:bg-emerald-50"
-                                  : "cursor-not-allowed text-slate-300"
-                              )}
-                              aria-label="Pin sticky note"
-                            >
-                              ✓
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => setStickyOpen(false)}
-                              className="rounded px-1.5 py-0.5 text-[10px] font-medium text-slate-500 transition hover:bg-slate-100 hover:text-slate-700"
-                              aria-label="Close sticky note"
-                            >
-                              ×
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setTodaySticky({ text: "", color: "#39ff14" });
-                                setStickyOpen(false);
-                                setStickyCompact(false);
-                              }}
-                              className="rounded px-1.5 py-0.5 text-[10px] font-medium text-red-600 transition hover:bg-red-50"
-                            >
-                              Delete
-                            </button>
-                          </div>
+                        <div className="mb-1 flex items-center justify-end gap-1">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if ((activeSticky.text ?? "").trim()) {
+                                setTodayStickies((prev) =>
+                                  prev.map((item) =>
+                                    item.id === activeSticky.id ? { ...item, compact: true } : item
+                                  )
+                                );
+                                setActiveStickyId(null);
+                              }
+                            }}
+                            className={cn(
+                              "rounded px-1.5 py-0.5 text-[10px] font-semibold transition",
+                              (activeSticky.text ?? "").trim()
+                                ? "text-emerald-700 hover:bg-emerald-50"
+                                : "cursor-not-allowed text-slate-300"
+                            )}
+                            aria-label="Pin sticky"
+                          >
+                            ✓
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setTodayStickies((prev) =>
+                                prev.filter((item) => item.id !== activeSticky.id)
+                              );
+                              setActiveStickyId(null);
+                            }}
+                            className="rounded px-1.5 py-0.5 text-[10px] font-medium text-slate-500 transition hover:bg-slate-100 hover:text-slate-700"
+                            aria-label="Delete sticky"
+                          >
+                            ×
+                          </button>
                         </div>
                         <textarea
-                          value={todaySticky?.text ?? ""}
-                          onChange={(e) =>
-                            setTodaySticky((prev) => ({
-                              text: e.target.value,
-                              color: prev?.color || "#39ff14",
-                            }))
-                          }
-                          rows={3}
+                          value={activeSticky.text ?? ""}
+                          onChange={(e) => {
+                            e.currentTarget.style.height = "auto";
+                            e.currentTarget.style.height = `${e.currentTarget.scrollHeight}px`;
+                            setTodayStickies((prev) =>
+                              prev.map((item) =>
+                                item.id === activeSticky.id ? { ...item, text: e.target.value } : item
+                              )
+                            );
+                          }}
+                          onFocus={(e) => {
+                            e.currentTarget.style.height = "auto";
+                            e.currentTarget.style.height = `${e.currentTarget.scrollHeight}px`;
+                          }}
+                          rows={5}
                           placeholder="Type sticky note..."
-                          className="w-full resize-y rounded-md border border-black/20 px-2 py-1.5 text-[12px] text-slate-900 outline-none focus:border-black/40"
-                          style={{ backgroundColor: todaySticky?.color || "#39ff14" }}
+                          className="min-h-[8rem] w-full resize-none overflow-hidden rounded-md border border-black/20 px-2 py-1.5 text-[12px] text-slate-900 outline-none focus:border-black/40"
+                          style={{ backgroundColor: activeSticky.color || "#39ff14" }}
                         />
-                        <div className="mt-2 flex items-center gap-1">
+                        <div className="mt-2 flex shrink-0 items-center gap-1">
                           {STICKY_COLOR_OPTIONS.map((c) => (
                             <button
                               key={c}
                               type="button"
                               onClick={() =>
-                                setTodaySticky((prev) => ({
-                                  text: prev?.text ?? "",
-                                  color: c,
-                                }))
+                                setTodayStickies((prev) =>
+                                  prev.map((item) =>
+                                    item.id === activeSticky.id ? { ...item, color: c } : item
+                                  )
+                                )
                               }
                               className={cn(
                                 "h-5 w-5 rounded-sm border transition",
-                                (todaySticky?.color || "#39ff14") === c ? "border-black ring-1 ring-black/30" : "border-slate-300"
+                                (activeSticky.color || "#39ff14") === c ? "border-black ring-1 ring-black/30" : "border-slate-300"
                               )}
                               style={{ backgroundColor: c }}
                               aria-label="Set sticky colour"
@@ -1084,10 +1209,7 @@ export function TimetableStudioPanel({
           </div>
         )}
 
-        <div
-          className="min-h-0 flex-1 overflow-hidden"
-          style={{ zoom: fontScale }}
-        >
+        <div className="min-h-0 flex-1 overflow-y-auto md:overflow-hidden" style={{ zoom: fontScale }}>
           <div
             className={cn(
               "grid h-full min-h-0 gap-2 overflow-y-auto pr-1 [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-slate-300 [&::-webkit-scrollbar-thumb]:rounded-full hover:[&::-webkit-scrollbar-thumb]:bg-slate-400",
