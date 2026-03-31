@@ -419,6 +419,10 @@ export function TimetableStudioPanel({
   removeCellsAtAnchor,
 }) {
   const viewTimetable = normalizedSearch ? filteredTimetable : timetable;
+  const schoolDayRows = useMemo(
+    () => timetable.filter((day) => SCHOOL_WEEKDAYS.has(day.day)),
+    [timetable]
+  );
 
   const {
     FlipClock,
@@ -1293,18 +1297,19 @@ export function TimetableStudioPanel({
         </div>
 
         {!focusMode && (
-          <div className="mb-5 grid w-full grid-cols-1 gap-x-2 gap-y-2 pt-1 xl:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] xl:items-center">
-            <div className="flex min-w-0 flex-wrap items-center justify-center gap-2 xl:justify-self-start xl:justify-start">
-              {(normalizedSearch ? filteredTimetable : timetable).map((day) => (
-                <React.Fragment key={day.day}>
+          <div className="mb-5 flex w-full flex-wrap items-center gap-1.5 pt-1 sm:gap-2">
+            {viewMode === "day" ? (
+              <div className="flex min-w-0 flex-wrap items-center gap-1.5 sm:gap-2">
+                {(normalizedSearch ? filteredTimetable : timetable).map((day) => (
                   <button
+                    key={day.day}
                     type="button"
                     onClick={() => {
                       setSelectedDay(day.day);
                       setViewMode("day");
                     }}
                     className={cn(
-                      "w-20 shrink-0 text-center rounded-[5px] border px-3 py-2 text-sm font-medium shadow-sm transition",
+                      "w-[4.4rem] shrink-0 text-center rounded-[5px] border px-2.5 py-1.5 text-xs font-medium shadow-sm transition sm:w-20 sm:px-3 sm:py-2 sm:text-sm",
                       selectedDay === day.day
                         ? "border-slate-700 bg-slate-700 text-white"
                         : "border-slate-300 bg-white text-slate-800 hover:bg-slate-50"
@@ -1312,64 +1317,86 @@ export function TimetableStudioPanel({
                   >
                     {day.short}
                   </button>
-                  {day.day === "Friday" && (
-                    <div className="flex flex-wrap items-center gap-2 xl:border-l xl:border-slate-300 xl:pl-3">
-                      <div className="flex items-center rounded-full border border-slate-200 bg-white p-0.5 shadow-sm">
-                        <button
-                          type="button"
-                          onClick={() => setViewMode("week")}
-                          className={cn(
-                            "rounded-full px-3 py-1.5 text-xs font-medium transition",
-                            viewMode !== "month" ? "bg-slate-900 text-white" : "text-slate-600"
-                          )}
-                        >
-                          Week
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setViewMode("month")}
-                          className={cn(
-                            "rounded-full px-3 py-1.5 text-xs font-medium transition",
-                            viewMode === "month" ? "bg-slate-900 text-white" : "text-slate-600"
-                          )}
-                        >
-                          Month
-                        </button>
-                      </div>
-                    </div>
-                  )}
-                </React.Fragment>
-              ))}
-            </div>
-            <div className="flex flex-wrap items-center justify-center gap-2 justify-self-center">
+                ))}
+              </div>
+            ) : null}
+
+            {viewMode === "month" ? (
+              <div className="flex items-center gap-1">
+                {schoolDayRows.map((day) => (
+                  <button
+                    key={`month-day-${day.day}`}
+                    type="button"
+                    onClick={() => {
+                      setSelectedDay(day.day);
+                      setViewMode("day");
+                    }}
+                    className={cn(
+                      "flex h-7 w-7 shrink-0 items-center justify-center rounded-full border text-[11px] font-semibold shadow-sm transition",
+                      selectedDay === day.day
+                        ? "border-slate-700 bg-slate-700 text-white"
+                        : "border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
+                    )}
+                    title={day.day}
+                    aria-label={`Open ${day.day}`}
+                  >
+                    {String(day.short ?? day.day).slice(0, 1)}
+                  </button>
+                ))}
+              </div>
+            ) : null}
+
+            <div className="flex items-center rounded-full border border-slate-200 bg-white p-0.5 shadow-sm">
               <button
                 type="button"
-                onClick={onOpenUnitOutliner}
-                className="rounded-full border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-800 shadow-sm transition hover:bg-slate-50"
+                onClick={() => setViewMode("week")}
+                className={cn(
+                  "rounded-full px-2.5 py-1 text-[11px] font-medium transition sm:px-3 sm:py-1.5 sm:text-xs",
+                  viewMode !== "month" ? "bg-slate-900 text-white" : "text-slate-600"
+                )}
               >
-                Unit Outliner
+                Week
               </button>
               <button
                 type="button"
-                onClick={onOpenStudentNotes}
-                className="rounded-full border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-800 shadow-sm transition hover:bg-slate-50"
+                onClick={() => setViewMode("month")}
+                className={cn(
+                  "rounded-full px-2.5 py-1 text-[11px] font-medium transition sm:px-3 sm:py-1.5 sm:text-xs",
+                  viewMode === "month" ? "bg-slate-900 text-white" : "text-slate-600"
+                )}
               >
-                Student Notes
-              </button>
-              <button
-                type="button"
-                onClick={handleAddLesson}
-                className="rounded-full bg-slate-900 px-3 py-2 text-xs font-semibold text-white shadow-sm transition hover:opacity-95"
-              >
-                <Plus className="mr-1 inline h-3.5 w-3.5" />
-                Add Lesson
+                Month
               </button>
             </div>
-            <div className="flex items-center justify-center gap-2 xl:justify-self-end xl:justify-end">
+
+            <button
+              type="button"
+              onClick={onOpenUnitOutliner}
+              className="rounded-full border border-slate-300 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-slate-800 shadow-sm transition hover:bg-slate-50 sm:px-3 sm:py-2 sm:text-xs"
+            >
+              Unit Outliner
+            </button>
+            <button
+              type="button"
+              onClick={onOpenStudentNotes}
+              className="rounded-full border border-slate-300 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-slate-800 shadow-sm transition hover:bg-slate-50 sm:px-3 sm:py-2 sm:text-xs"
+            >
+              Student Notes
+            </button>
+            <button
+              type="button"
+              onClick={handleAddLesson}
+              className="rounded-full bg-slate-900 px-2.5 py-1.5 text-[11px] font-semibold text-white shadow-sm transition hover:opacity-95 sm:px-3 sm:py-2 sm:text-xs"
+            >
+              <Plus className="mr-1 inline h-3.5 w-3.5" />
+              Add Lesson
+            </button>
+
+            <div className="ml-auto flex items-center gap-1.5 sm:gap-2">
               <button
                 type="button"
                 onClick={handleExpandAll}
-                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-slate-300 bg-white text-slate-700 shadow-sm transition hover:bg-slate-50"
+                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-slate-300 bg-white text-slate-700 shadow-sm transition hover:bg-slate-50 sm:h-9 sm:w-9"
                 title="Toggle Expand All"
               >
                 <ChevronsUpDown className="h-4 w-4" />

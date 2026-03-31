@@ -8085,8 +8085,8 @@ export default function App() {
           {!focusMode && (
             <motion.aside
               className={cn(
-                "z-20 m-4 mr-0 flex h-[calc(100vh-2rem)] shrink-0 flex-col overflow-hidden rounded-[5px] border border-slate-800 bg-slate-900 shadow-xl text-white",
-                sidebarCollapsed ? "w-24" : "w-80"
+                "z-20 m-3 mr-0 flex h-[calc(100vh-1.5rem)] shrink-0 flex-col overflow-hidden rounded-[5px] border border-slate-800 bg-slate-900 shadow-xl text-white md:m-4 md:mr-0 md:h-[calc(100vh-2rem)]",
+                sidebarCollapsed ? "w-20 md:w-24" : "w-56 lg:w-[14.8rem]"
               )}
             >
               <div className="flex items-center justify-between border-b border-slate-100 px-5 py-5">
@@ -8198,9 +8198,9 @@ export default function App() {
                       <div
                         key={item.id}
                         className={cn(
-                          "rounded-[5px] p-2 text-left shadow-sm",
+                          "rounded-[5px] px-2 py-1.5 text-left shadow-sm",
                           tone.card,
-                          sidebarCollapsed && "p-2"
+                          sidebarCollapsed && "p-1.5"
                         )}
                       >
                         {isDeleting ? (
@@ -8247,7 +8247,7 @@ export default function App() {
                             >
                               {!sidebarCollapsed ? (
                                 <>
-                                  <div className="mb-1.5 flex items-center gap-1.5">
+                                  <div className="mb-1 flex items-center gap-1.5">
                                     <span className={cn("inline-flex rounded-full border px-2 py-0.5 text-[9px] font-bold uppercase tracking-[0.14em] shadow-sm", tone.chip)}>
                                       {item.kind === "celebration"
                                         ? "Celebration"
@@ -8280,18 +8280,22 @@ export default function App() {
                                     <span className={cn("text-[10px] font-medium", tone.text)}>
                                       {isStudentNoteResult
                                         ? [item.week, item.dayName, item.period].filter(Boolean).join(" · ") || "Student notes"
-                                        : (
-                                            <>
-                                              {item.dayName} {item.date}{" "}
-                                              {new Date(item.year, item.month, 1).toLocaleDateString("en-AU", { month: "short" })}
-                                              {item.kind === "celebration" && item.celebrationYearly ? (
-                                                <span className="text-purple-200/90"> · yearly</span>
-                                              ) : null}
-                                            </>
-                                          )}
+                                        : item.kind === "celebration"
+                                          ? (
+                                              <>
+                                                {item.date}{" "}
+                                                {new Date(item.year, item.month, 1).toLocaleDateString("en-AU", { month: "short" })}
+                                              </>
+                                            )
+                                          : (
+                                              <>
+                                                {item.dayName} {item.date}{" "}
+                                                {new Date(item.year, item.month, 1).toLocaleDateString("en-AU", { month: "short" })}
+                                              </>
+                                            )}
                                     </span>
                                   </div>
-                                  <p className="truncate text-sm font-bold text-white">{item.title}</p>
+                                  <p className="truncate text-[13px] font-semibold text-white">{item.title}</p>
                                 </>
                               ) : (
                                 <div className="flex w-full justify-center py-2" />
@@ -8345,7 +8349,7 @@ export default function App() {
           )}
         </AnimatePresence>
 
-        <main className="relative flex-1 p-4 overflow-hidden">
+        <main className="relative flex-1 overflow-hidden p-3 md:p-4">
           {focusMode && (
             <div className="absolute right-6 top-6 z-50 flex items-center gap-2">
               <button
@@ -9097,7 +9101,7 @@ export default function App() {
                           return (
                             <div
                               key={item.id}
-                              className={cn("rounded-[5px] p-2 text-left shadow-sm", tone.card)}
+                              className={cn("rounded-[5px] px-2 py-1.5 text-left shadow-sm", tone.card)}
                             >
                               {isDeleting ? (
                                 <div className="flex items-center justify-between gap-2">
@@ -9139,7 +9143,7 @@ export default function App() {
                                       item.kind !== "celebration" && "cursor-pointer"
                                     )}
                                   >
-                                    <div className="mb-1.5 flex items-center gap-1.5">
+                                    <div className="mb-1 flex items-center gap-1.5">
                                       <span
                                         className={cn(
                                           "inline-flex rounded-full border px-2 py-0.5 text-[9px] font-bold uppercase tracking-[0.14em] shadow-sm",
@@ -9171,16 +9175,24 @@ export default function App() {
                                         </button>
                                       ) : null}
                                       <span className={cn("text-[10px] font-medium", tone.text)}>
-                                        {item.dayName} {item.date}{" "}
-                                        {new Date(item.year, item.month, 1).toLocaleDateString("en-AU", {
-                                          month: "short",
-                                        })}
-                                        {item.kind === "celebration" && item.celebrationYearly ? (
-                                          <span className="text-purple-200/90"> · yearly</span>
-                                        ) : null}
+                                        {item.kind === "celebration" ? (
+                                          <>
+                                            {item.date}{" "}
+                                            {new Date(item.year, item.month, 1).toLocaleDateString("en-AU", {
+                                              month: "short",
+                                            })}
+                                          </>
+                                        ) : (
+                                          <>
+                                            {item.dayName} {item.date}{" "}
+                                            {new Date(item.year, item.month, 1).toLocaleDateString("en-AU", {
+                                              month: "short",
+                                            })}
+                                          </>
+                                        )}
                                       </span>
                                     </div>
-                                    <p className="truncate text-sm font-bold text-white">{item.title}</p>
+                                    <p className="truncate text-[13px] font-semibold text-white">{item.title}</p>
                                   </div>
                                   <div className="flex shrink-0 items-center gap-2">
                                     <button
