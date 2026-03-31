@@ -18,6 +18,103 @@ const STICKY_EDITOR_DEFAULT_WIDTH = 240;
 const STICKY_EDITOR_DEFAULT_HEIGHT = 160;
 const STICKY_EDITOR_MIN_WIDTH = 192;
 const STICKY_EDITOR_MIN_HEIGHT = 120;
+const STUDENT_ESSAY_QUOTES = [
+  "Although the Industrial Revolution improved lives, it mainly improved smoke.",
+  "Since Shakespeare loved drama, he killed people like it was a hobby.",
+  "Even though the character was brave, he immediately ran away, which was confusing but relatable.",
+  "With great power comes great responsibility, which he ignored almost instantly.",
+  "Although the experiment failed, it succeeded in making a loud bang.",
+  "Because the government wanted peace, they started a war.",
+  "Even though the evidence was clear, the suspect chose not to participate in reality.",
+  "While the poem explores deep emotion, I did not.",
+  "Since the setting was dark and gloomy, it matched my mood doing this assignment.",
+  "Although the author uses symbolism, I will not.",
+  "With careful planning, the plan went completely wrong.",
+  "Even though Romeo loved Juliet, he made several poor life choices in under three days.",
+  "Because the data was confusing, I chose to trust my instincts, which were also wrong.",
+  "Although the character learned a lesson, it was unfortunately too late and also avoidable.",
+  "While the battle was intense, the strategy was not.",
+  "Since the teacher asked for detail, I have included this sentence.",
+  "Even though the conclusion should summarise the essay, this one simply ends.",
+  "Because the scientist was curious, things exploded.",
+  "Although the economy improved, my understanding did not.",
+  "With strong evidence presented, I will now ignore it.",
+  "Even though the protagonist was determined, the door was more determined.",
+  "Since the theme is about courage, nobody shows any.",
+  "Although the results were unexpected, they were also unhelpful.",
+  "Because the character had a plan, everything immediately fell apart.",
+  "While the author intended to inspire, I feel mostly confused.",
+  "Since this is a persuasive essay, I will now persuade you that I tried.",
+  "Even though the setting is peaceful, something bad obviously happens because otherwise this would be boring.",
+  "Although the speech was powerful, it did not convince me to keep reading.",
+  "Because the instructions were clear, I misunderstood them creatively.",
+  "With deep analysis, I have discovered that this is indeed a story.",
+  "Even though the question was simple, my answer is not.",
+  "Since the character faces conflict, he handles it poorly.",
+  "Although the experiment was controlled, the students were not.",
+  "Because the text is complex, I will now simplify it incorrectly.",
+  "While the author builds tension, I release it by finishing early.",
+  "Since this is a formal essay, I will now stop being formal.",
+  "Even though the conclusion should be strong, I am tired.",
+  "Although the evidence supports my argument, I forgot what my argument was.",
+  "Because the story is tragic, nobody makes a good decision.",
+  "With all things considered, I have considered enough.",
+  "Although the king was meant to lead wisely, he mainly shouted and made everything worse.",
+  "Since the character was described as humble, he spoke about himself for three pages.",
+  "Even though the village feared the monster, nobody considered simply moving.",
+  "Because the speech was inspirational, I almost believed the speaker believed it too.",
+  "While the storm symbolised chaos, it also ruined everyone’s weekend.",
+  "Although the soldier showed bravery, his actual plan was just running forwards loudly.",
+  "Since the scientist ignored safety procedures, the lab became a learning experience.",
+  "Even though the text contains many layers, I have peeled back none of them.",
+  "Because the relationship was toxic, it was naturally called romance.",
+  "Although the evidence is overwhelming, the villain remains confident for no reason.",
+  "While the poem is full of sadness, it is also full of line breaks pretending to be depth.",
+  "Since the protagonist wanted freedom, he made choices that produced the opposite.",
+  "Even though the setting was beautiful, the people in it were determined to suffer.",
+  "Because this is an argument essay, I will now argue with the question.",
+  "Although the leader promised change, he delivered a speech and then disappeared emotionally.",
+  "Since the character was intelligent, his next decision shocked everybody.",
+  "Even though the ancient civilisation was advanced, they still somehow invented problems.",
+  "Because the book explores identity, several characters spend the entire plot confused in expensive clothing.",
+  "Although the experiment had a hypothesis, the students mostly had vibes.",
+  "Since the family was dysfunctional, dinner was basically a live action threat.",
+  "While the author creates suspense, the parents in the story create most of the damage.",
+  "Because the hero was chosen by destiny, effort was apparently optional.",
+  "Although the queen appeared graceful, her behaviour suggested otherwise.",
+  "Since the theme is love, everyone communicates in the worst possible way.",
+  "Even though the battle was historic, it could have been avoided by one honest conversation.",
+  "Because the story is set in the future, common sense has been left behind.",
+  "Although the character claimed to be calm, he then delivered three paragraphs of panic.",
+  "Since the speech targeted the audience’s emotions, facts were asked to leave.",
+  "Even though the plan was secret, the villain explained it to everyone anyway.",
+  "Because the conflict is internal, the character suffers privately and dramatically near a window.",
+  "Although the setting is symbolic, it is also suspiciously muddy.",
+  "Since the narrator is unreliable, trusting him felt like a personal mistake.",
+  "Even though the treaty promised peace, it mostly promised future homework for historians.",
+  "Because the author uses irony, I laughed once and then felt bad about it.",
+  "Although the community wanted justice, they mostly wanted gossip with a legal theme.",
+  "Since the conclusion should be memorable, this one leaves quietly through the side door.",
+  "Even though the character had potential, he used it for nonsense.",
+  "Because the scene is emotional, somebody immediately says the wrong thing.",
+  "Although the law was intended to help, it arrived with several unforeseen disasters.",
+  "Since the text is persuasive, it repeats itself with confidence.",
+  "Even though the main character is mature, the evidence suggests otherwise.",
+  "Because the villagers ignored the warning signs, the plot was able to continue.",
+  "Although the author presents both sides, one side is clearly wearing clown shoes.",
+  "Since this is an informative essay, I am now informing you that the situation was bad.",
+  "Even though the relationship began with hope, it continued with red flags and poor listening skills.",
+  "Because the kingdom needed saving, the least organised person available took charge.",
+  "Although the speech aimed to unite the nation, it mostly annoyed the room.",
+  "Since the evidence supports my point, I will act surprised by it.",
+  "Even though the character was warned repeatedly, he stayed committed to bad decisions.",
+  "Because the ending is tragic, everyone suddenly discovers feelings and it is far too late.",
+];
+
+function weekNumberFromLabel(label) {
+  const n = Number(String(label ?? "").match(/\d+/)?.[0]);
+  return Number.isFinite(n) && n > 0 ? n : 1;
+}
 
 function parseLessonRangeMinutes(timeText) {
   const t = String(timeText ?? "");
@@ -221,6 +318,7 @@ export function TimetableStudioPanel({
   editingDayCountdown,
   setDayCountdownDraft,
   dayCountdownDraft,
+  dayCountdownTarget,
   setDayCountdownTarget,
   normalizeDayCountdownTarget,
   setEditingDayCountdown,
@@ -252,6 +350,11 @@ export function TimetableStudioPanel({
   fontScaleStep,
   fontScale,
   saveStatus,
+  lastSavedAt,
+  canUndo,
+  canRedo,
+  onUndo,
+  onRedo,
   utilitiesBtnRef,
   toggleUtilitiesMenu,
   utilitiesMenuOpen,
@@ -269,11 +372,14 @@ export function TimetableStudioPanel({
   monthViewDayNotes,
   onMonthViewDayNoteCommit,
   normalizedSearch,
+  hasAnySearchResults,
   filteredTimetable,
   timetable,
   selectedDay,
   setSelectedDay,
   handleAddLesson,
+  onOpenUnitOutliner,
+  onOpenStudentNotes,
   handleExpandAll,
   visibleDays,
   searchQuery,
@@ -411,6 +517,17 @@ export function TimetableStudioPanel({
     STICKY_EDITOR_MIN_HEIGHT,
     Math.floor((stickyPreferBelow ? stickySpaceBelow : stickySpaceAbove) * 0.96)
   );
+  const lastSavedLabel = useMemo(() => {
+    if (!lastSavedAt) return "Last saved: —";
+    try {
+      return `Last saved: ${new Date(lastSavedAt).toLocaleTimeString([], {
+        hour: "numeric",
+        minute: "2-digit",
+      })}`;
+    } catch {
+      return "Last saved: —";
+    }
+  }, [lastSavedAt]);
   const stickyChipFlexBasis = useMemo(() => {
     const count = Math.max(1, todayStickies.length);
     if (count <= 2) return 152;
@@ -418,6 +535,16 @@ export function TimetableStudioPanel({
     if (count <= 6) return 104;
     return 88;
   }, [todayStickies.length]);
+  const weeklyEssayQuote = useMemo(() => {
+    const now = new Date();
+    const localMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const dayIndex = Math.floor(localMidnight.getTime() / 86400000);
+    return STUDENT_ESSAY_QUOTES[((dayIndex % STUDENT_ESSAY_QUOTES.length) + STUDENT_ESSAY_QUOTES.length) % STUDENT_ESSAY_QUOTES.length];
+  }, []);
+  const openDayCountdownEditor = useCallback(() => {
+    setDayCountdownDraft(dayCountdownTarget);
+    setEditingDayCountdown(true);
+  }, [dayCountdownTarget, setDayCountdownDraft, setEditingDayCountdown]);
   const activeSticky = useMemo(
     () => todayStickies.find((item) => item.id === activeStickyId) ?? null,
     [todayStickies, activeStickyId]
@@ -446,19 +573,16 @@ export function TimetableStudioPanel({
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,_rgba(15,23,42,0.05),_transparent_35%),radial-gradient(circle_at_bottom_right,_rgba(148,163,184,0.12),_transparent_30%)]" />
 
       <div className="relative z-10 flex min-h-[calc(100vh-2rem)] flex-col px-4 pb-0 pt-4 md:h-full md:min-h-0 lg:px-6 lg:pb-0 lg:pt-6">
-        <div className="mb-4 flex w-full flex-col gap-4">
-          <div className="flex w-full items-start justify-between gap-3">
-            <div className="min-w-0 flex-1">
-              <p className="text-xs font-medium uppercase tracking-[0.2em] text-slate-400">Studio</p>
-              <h2 className="text-2xl font-semibold tracking-tight text-slate-900 lg:text-3xl">Teaching Studio</h2>
-              {!focusMode && (
-                <p className="mt-1 text-sm text-slate-500">
-                  Use the day strip to pick a day in week view, switch to month for a quick scan, and drag items to reorder.
-                </p>
-              )}
-            </div>
+        <div className="mb-3 flex w-full flex-col gap-2">
+          <div className="relative flex w-full flex-col items-center gap-1 xl:min-h-[3.35rem] xl:items-stretch">
+            <h2 className="pointer-events-none text-center text-2xl font-semibold tracking-tight text-slate-900 lg:text-3xl xl:absolute xl:left-1/2 xl:top-0 xl:-translate-x-1/2">
+              Teaching Studio
+            </h2>
+            <p className="pointer-events-none max-w-[min(96vw,44rem)] text-center text-[11px] font-medium text-slate-500 sm:max-w-[min(82vw,44rem)] xl:absolute xl:left-1/2 xl:top-[2rem] xl:max-w-[min(52vw,40rem)] xl:-translate-x-1/2 xl:truncate">
+              Student essay quote: "{weeklyEssayQuote}"
+            </p>
             {!focusMode && (
-              <div className="flex shrink-0 items-center gap-2">
+              <div className="flex w-full flex-wrap items-center justify-center gap-2 xl:justify-end">
                 <div
                   className={cn(
                     "inline-flex h-8 items-center gap-1.5 rounded-full border bg-white/85 px-2.5 text-[10px] font-semibold shadow-sm transition",
@@ -479,7 +603,30 @@ export function TimetableStudioPanel({
                   />
                   {saveStatus === "saving" ? "Saving..." : saveStatus === "error" ? "Save issue" : "Saved"}
                 </div>
+                <span className="rounded-full border border-slate-200 bg-white/85 px-2.5 py-1 text-[10px] font-medium text-slate-600 shadow-sm">
+                  {lastSavedLabel}
+                </span>
                 <div className="flex items-center gap-1 rounded-[5px] border border-slate-300 bg-white/85 p-1.5 shadow-sm">
+                  <button
+                    type="button"
+                    onClick={onUndo}
+                    disabled={!canUndo}
+                    className="flex h-9 min-w-[3.15rem] shrink-0 items-center justify-center rounded-full border border-slate-300 bg-white px-2 text-[10px] font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+                    title="Undo (Ctrl/Cmd+Z)"
+                    aria-label="Undo"
+                  >
+                    Undo
+                  </button>
+                  <button
+                    type="button"
+                    onClick={onRedo}
+                    disabled={!canRedo}
+                    className="flex h-9 min-w-[3.15rem] shrink-0 items-center justify-center rounded-full border border-slate-300 bg-white px-2 text-[10px] font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+                    title="Redo (Ctrl/Cmd+Shift+Z)"
+                    aria-label="Redo"
+                  >
+                    Redo
+                  </button>
                   <button
                     type="button"
                     onClick={() => bumpFontScale(-fontScaleStep)}
@@ -525,18 +672,20 @@ export function TimetableStudioPanel({
 
           {!focusMode && (
             <div className="rounded-[5px] border border-slate-200 bg-white/85 px-3 py-2 shadow-sm">
-              <div className="flex min-h-10 flex-wrap items-center gap-2">
-                <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-1 text-[10px] font-semibold text-slate-600">
-                  Today · {commandDayName}
-                </span>
-                <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-1 text-[10px] font-semibold text-emerald-800">
-                  Now: {nowLabel}
-                </span>
-                <span className="rounded-full border border-sky-200 bg-sky-50 px-2 py-1 text-[10px] font-semibold text-sky-800">
-                  Next: {nextLabel}
-                </span>
-                <div ref={stickyWrapRef} className="relative ml-auto flex min-w-0 flex-1 items-center justify-end gap-2">
-                  <div className="flex min-w-0 flex-1 items-center justify-end gap-1 overflow-hidden pr-1">
+              <div className="flex min-h-10 flex-wrap items-center gap-2 xl:flex-nowrap">
+                <div className="flex min-w-0 flex-wrap items-center gap-2">
+                  <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-1 text-[10px] font-semibold text-slate-600">
+                    Today · {commandDayName}
+                  </span>
+                  <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-1 text-[10px] font-semibold text-emerald-800">
+                    Now: {nowLabel}
+                  </span>
+                  <span className="rounded-full border border-sky-200 bg-sky-50 px-2 py-1 text-[10px] font-semibold text-sky-800">
+                    Next: {nextLabel}
+                  </span>
+                </div>
+                <div ref={stickyWrapRef} className="relative flex min-w-0 flex-1 flex-wrap items-center gap-2 xl:ml-auto xl:flex-nowrap xl:justify-end">
+                  <div className="flex min-w-0 flex-1 items-center gap-1 overflow-hidden pr-1 xl:justify-end">
                     {todayStickies.map((sticky) => (
                       <button
                         key={sticky.id}
@@ -579,6 +728,16 @@ export function TimetableStudioPanel({
                     className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[10px] font-semibold text-slate-700 transition hover:bg-slate-50"
                   >
                     + Sticky
+                  </button>
+                  <button
+                    type="button"
+                    disabled={!actionSlot}
+                    onClick={() =>
+                      actionSlot && openStudentNoteEntryForLesson(actionSlot.lesson, commandDayName)
+                    }
+                    className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[10px] font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    + Student Note
                   </button>
                   {activeSticky ? (
                     activeSticky.compact ? (
@@ -739,16 +898,6 @@ export function TimetableStudioPanel({
                     )
                   ) : null}
                 </div>
-                <button
-                  type="button"
-                  disabled={!actionSlot}
-                  onClick={() =>
-                    actionSlot && openStudentNoteEntryForLesson(actionSlot.lesson, commandDayName)
-                  }
-                  className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[10px] font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
-                >
-                  + Student Note
-                </button>
               </div>
             </div>
           )}
@@ -885,10 +1034,19 @@ export function TimetableStudioPanel({
                       editingDayCountdown ? "min-w-[9rem] w-auto max-w-[11rem]" : "w-[7.25rem]"
                     )}
                   >
-                    <p className="text-[8px] font-medium uppercase leading-none tracking-wide text-slate-400">
+                    <p
+                      className={cn(
+                        "text-[8px] font-medium uppercase leading-none tracking-wide text-slate-400",
+                        !editingDayCountdown && "cursor-pointer"
+                      )}
+                      onClick={!editingDayCountdown ? openDayCountdownEditor : undefined}
+                    >
                       Days until
                     </p>
-                    <div className="flex min-h-0 min-w-0 items-center">
+                    <div
+                      className={cn("flex min-h-0 min-w-0 items-center", !editingDayCountdown && "cursor-pointer")}
+                      onClick={!editingDayCountdown ? openDayCountdownEditor : undefined}
+                    >
                       {editingDayCountdown ? (
                         <input
                           type="date"
@@ -911,10 +1069,7 @@ export function TimetableStudioPanel({
                       ) : (
                         <button
                           type="button"
-                          onClick={() => {
-                            setDayCountdownDraft(dayCountdownTarget);
-                            setEditingDayCountdown(true);
-                          }}
+                          onClick={openDayCountdownEditor}
                           className="min-w-0 truncate text-left text-sm font-bold tabular-nums text-slate-900"
                           title="Tap to edit target date"
                         >
@@ -937,7 +1092,7 @@ export function TimetableStudioPanel({
                       maxLength={80}
                     />
                   </div>
-                  <div className="flex min-h-[3.75rem] w-max max-w-full shrink-0 flex-wrap items-center gap-2 rounded-[5px] border border-slate-300 bg-white/80 pl-2.5 pr-3 py-1 shadow-sm">
+                  <div className="flex min-h-[3.75rem] w-full max-w-full shrink-0 flex-wrap items-center gap-2 rounded-[5px] border border-slate-300 bg-white/80 pl-2.5 pr-3 py-1 shadow-sm sm:w-max">
                     <DelayedHoverTooltip label="Search lessons, rooms, reminders (sidebar)">
                       <button
                         type="button"
@@ -1138,8 +1293,8 @@ export function TimetableStudioPanel({
         </div>
 
         {!focusMode && (
-          <div className="mb-5 grid w-full grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-x-2 gap-y-2 pt-1">
-            <div className="flex min-w-0 flex-wrap items-center gap-2 justify-self-start">
+          <div className="mb-5 grid w-full grid-cols-1 gap-x-2 gap-y-2 pt-1 xl:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] xl:items-center">
+            <div className="flex min-w-0 flex-wrap items-center justify-center gap-2 xl:justify-self-start xl:justify-start">
               {(normalizedSearch ? filteredTimetable : timetable).map((day) => (
                 <React.Fragment key={day.day}>
                   <button
@@ -1158,7 +1313,7 @@ export function TimetableStudioPanel({
                     {day.short}
                   </button>
                   {day.day === "Friday" && (
-                    <div className="flex flex-wrap items-center gap-2 border-l border-slate-300 pl-3">
+                    <div className="flex flex-wrap items-center gap-2 xl:border-l xl:border-slate-300 xl:pl-3">
                       <div className="flex items-center rounded-full border border-slate-200 bg-white p-0.5 shadow-sm">
                         <button
                           type="button"
@@ -1186,7 +1341,21 @@ export function TimetableStudioPanel({
                 </React.Fragment>
               ))}
             </div>
-            <div className="flex justify-center justify-self-center">
+            <div className="flex flex-wrap items-center justify-center gap-2 justify-self-center">
+              <button
+                type="button"
+                onClick={onOpenUnitOutliner}
+                className="rounded-full border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-800 shadow-sm transition hover:bg-slate-50"
+              >
+                Unit Outliner
+              </button>
+              <button
+                type="button"
+                onClick={onOpenStudentNotes}
+                className="rounded-full border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-800 shadow-sm transition hover:bg-slate-50"
+              >
+                Student Notes
+              </button>
               <button
                 type="button"
                 onClick={handleAddLesson}
@@ -1196,7 +1365,7 @@ export function TimetableStudioPanel({
                 Add Lesson
               </button>
             </div>
-            <div className="flex items-center justify-end gap-2 justify-self-end">
+            <div className="flex items-center justify-center gap-2 xl:justify-self-end xl:justify-end">
               <button
                 type="button"
                 onClick={handleExpandAll}
@@ -1229,7 +1398,7 @@ export function TimetableStudioPanel({
               setSelectedDay={setSelectedDay}
               setViewMode={setViewMode}
             />
-          ) : visibleDays.length === 0 ? (
+          ) : visibleDays.length === 0 && !hasAnySearchResults ? (
             <div className="flex h-24 items-center justify-center rounded-[5px] border border-dashed border-slate-300 bg-white/50 p-8 text-sm text-slate-500">
               No matches for “{searchQuery}”
             </div>

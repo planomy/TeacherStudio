@@ -4,6 +4,15 @@ import { TimetableStudioPanel } from "./TimetableStudioPanel.jsx";
 import { UtilitiesMenusAndModals } from "./UtilitiesMenusAndModals.jsx";
 import { cn } from "./utils/cn.js";
 import { LinkifiedText, textContainsHttpUrl } from "./utils/LinkifiedText.jsx";
+import {
+  listTeacherStudioRollingBackups,
+  loadTeacherStudioCurrentSnapshot,
+  migrateTeacherStudioLocalStorageToIndexedDbIfNeeded,
+  maybePruneTeacherStudioRollingBackups,
+  restoreTeacherStudioRollingBackup,
+  saveTeacherStudioCurrentSnapshot,
+  saveTeacherStudioRollingBackup,
+} from "./utils/teacherStudioPersistence.js";
 
 /** Timetable card: class/subject line (Mon P1 demo slot). */
 const DEFAULT_LESSON_TITLE_PLACEHOLDER = "Type or Click + to add lesson";
@@ -705,6 +714,11 @@ const CELEBRATION_LIST_TONE = {
   card: "border-l-4 border-purple-500 bg-purple-950/80",
   chip: "bg-purple-500/40 text-purple-100 border-purple-400/55",
   text: "text-purple-200",
+};
+const STUDENT_NOTE_SEARCH_TONE = {
+  card: "border-l-4 border-cyan-500 bg-cyan-950/80",
+  chip: "bg-cyan-500/40 text-cyan-100 border-cyan-400/55",
+  text: "text-cyan-200",
 };
 
 function parseShortcutHref(input) {
@@ -4122,10 +4136,37 @@ const TEACHER_STUDIO_STORAGE_KEY = "teacher-studio-app-state-v1";
 const TEACHER_STUDIO_INITIALIZED_KEY = "teacherStudio_initialized";
 const TEACHER_STUDIO_FONT_STORAGE_KEY = "teaching-studio-font-scale";
 const TEACHER_STUDIO_ARCHIVES_STORAGE_KEY = "teacher-studio-archives-v1";
+const TEACHER_STUDIO_IDB_REHYDRATED_FLAG = "teacher-studio-idb-rehydrated";
+const TEACHER_STUDIO_SESSION_STATE_KEY = "teacher-studio-session-state-v1";
 const TEACHER_STUDIO_ARCHIVES_MAX = 25;
 const FONT_SCALE_MIN = 0.9;
 const FONT_SCALE_MAX = 1.8;
 const FONT_SCALE_STEP = 0.1;
+
+function readTeacherStudioSessionState() {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.localStorage.getItem(TEACHER_STUDIO_SESSION_STATE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === "object" ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeTeacherStudioSessionState(partial) {
+  if (typeof window === "undefined") return;
+  try {
+    const prev = readTeacherStudioSessionState() ?? {};
+    window.localStorage.setItem(
+      TEACHER_STUDIO_SESSION_STATE_KEY,
+      JSON.stringify({ ...prev, ...partial })
+    );
+  } catch {
+    /* ignore */
+  }
+}
 
 const defaultCalendarReminders = [
   { id: "cal-1", date: 25, month: 2, year: 2026, title: "Parent evening — bring snacks", kind: "event" },
@@ -4736,14 +4777,15 @@ function normalizeStudentNotes(raw) {
     if (!item || typeof item !== "object") continue;
     const studentName = String(item.studentName ?? "").trim().slice(0, 120);
     const classLabel = String(item.classLabel ?? "").trim().slice(0, 160);
+    const quickChoice = typeof item.quickChoice === "string" ? item.quickChoice.slice(0, 240).trim() : "";
     const note = String(item.note ?? "").trim().slice(0, 4000);
-    if (!studentName || !classLabel || !note) continue;
+    if (!studentName || !classLabel || (!note && !quickChoice)) continue;
     const createdAt = typeof item.createdAt === "string" && item.createdAt ? item.createdAt : "";
     out.push({
       id: typeof item.id === "string" && item.id ? item.id : `sn-${i + 1}`,
       studentName,
       classLabel,
-      quickChoice: typeof item.quickChoice === "string" ? item.quickChoice.slice(0, 80) : "",
+      quickChoice,
       note,
       createdAt,
       week: typeof item.week === "string" ? item.week : "",
@@ -5209,6 +5251,10 @@ export default function App() {
   const [studentNotes, setStudentNotes] = useState(initialAppState.studentNotes);
   const [todayStickies, setTodayStickies] = useState(initialAppState.todayStickies);
   const [saveStatus, setSaveStatus] = useState("saved");
+  const [lastSavedAt, setLastSavedAt] = useState(null);
+  const [crashRecoveryPrompt, setCrashRecoveryPrompt] = useState(null);
+  const [canUndo, setCanUndo] = useState(false);
+  const [canRedo, setCanRedo] = useState(false);
   const [selectedCalendarDate, setSelectedCalendarDate] = useState(null);
   const [selectedCalendarReminderId, setSelectedCalendarReminderId] = useState(null);
   const [calendarDraft, setCalendarDraft] = useState("");
@@ -5226,6 +5272,16 @@ export default function App() {
   const [baseTimetable, setBaseTimetable] = useState(initialAppState.baseTimetable);
   const [weekLessonOverlays, setWeekLessonOverlays] = useState(initialAppState.weekLessonOverlays);
   const saveStatusTimerRef = useRef(null);
+  const pendingIndexedDbTimerRef = useRef(null);
+  const pendingSnapshotRef = useRef(null);
+  const latestSnapshotRef = useRef(null);
+  const isBootstrappingPersistenceRef = useRef(true);
+  const hasUnbackedChangesRef = useRef(false);
+  const lastBackedUpFingerprintRef = useRef("");
+  const historyPastRef = useRef([]);
+  const historyFutureRef = useRef([]);
+  const suppressHistoryCaptureRef = useRef(true);
+  const lastHistorySnapshotRef = useRef(null);
 
   const timetableDataRef = useRef({
     baseTimetable: initialAppState.baseTimetable,
@@ -5343,6 +5399,13 @@ export default function App() {
 
   const [searchQuery, setSearchQuery] = useState(initialAppState.searchQuery);
   const [calendarMonth, setCalendarMonth] = useState(initialAppState.calendarMonth);
+  useEffect(() => {
+    const now = new Date();
+    const current = { year: now.getFullYear(), month: now.getMonth() };
+    setCalendarMonth((prev) =>
+      prev?.year === current.year && prev?.month === current.month ? prev : current
+    );
+  }, []);
   const [accentPicker, setAccentPicker] = useState(null);
   const accentPopoverRef = useRef(null);
   const [roomApplyPrompt, setRoomApplyPrompt] = useState(null);
@@ -5386,7 +5449,7 @@ export default function App() {
   const [newTermReadyToast, setNewTermReadyToast] = useState(false);
   const [studentNoteEntryDialog, setStudentNoteEntryDialog] = useState(null);
   const [studentNoteStudentDraft, setStudentNoteStudentDraft] = useState("");
-  const [studentNoteQuickChoiceDraft, setStudentNoteQuickChoiceDraft] = useState("");
+  const [studentNoteQuickChoiceDraft, setStudentNoteQuickChoiceDraft] = useState([]);
   const [studentNoteTextDraft, setStudentNoteTextDraft] = useState("");
   const [studentNotesViewerOpen, setStudentNotesViewerOpen] = useState(false);
   const [studentNotesViewerScope, setStudentNotesViewerScope] = useState("individual");
@@ -5458,6 +5521,128 @@ export default function App() {
     setShortcutActionMenu({ shortcut, anchor });
   }
 
+  const buildUndoSnapshot = useCallback(
+    () => ({
+      calendarReminders,
+      monthViewDayNotes,
+      studentNotes,
+      todayStickies: normalizeTodayStickies(todayStickies),
+      week1StartDate,
+      baseTimetable,
+      weekLessonOverlays,
+      celebrations: normalizeCelebrations(celebrations),
+      bellReminderSettings: normalizeBellReminderSettings(bellReminderSettings),
+      toolShortcuts: normalizeToolShortcuts(toolShortcuts),
+      dayCountdownTarget: normalizeDayCountdownTarget(dayCountdownTarget),
+      dayCountdownEventLabel: normalizeDayCountdownEventLabel(dayCountdownEventLabel),
+      unitStore,
+    }),
+    [
+      calendarReminders,
+      monthViewDayNotes,
+      studentNotes,
+      todayStickies,
+      week1StartDate,
+      baseTimetable,
+      weekLessonOverlays,
+      celebrations,
+      bellReminderSettings,
+      toolShortcuts,
+      dayCountdownTarget,
+      dayCountdownEventLabel,
+      unitStore,
+    ]
+  );
+
+  const syncUndoRedoFlags = useCallback(() => {
+    setCanUndo(historyPastRef.current.length > 0);
+    setCanRedo(historyFutureRef.current.length > 0);
+  }, []);
+
+  const applyUndoSnapshot = useCallback((snapshot) => {
+    if (!snapshot) return;
+    suppressHistoryCaptureRef.current = true;
+    setCalendarReminders(snapshot.calendarReminders ?? []);
+    setMonthViewDayNotes(normalizeMonthViewDayNotes(snapshot.monthViewDayNotes ?? {}));
+    setStudentNotes(normalizeStudentNotes(snapshot.studentNotes ?? []));
+    setTodayStickies(normalizeTodayStickies(snapshot.todayStickies));
+    setWeek1StartDate(
+      parseIsoToLocalDate(snapshot.week1StartDate)
+        ? isoDateFromLocalDate(parseIsoToLocalDate(snapshot.week1StartDate))
+        : week1StartDate
+    );
+    setBaseTimetable(stripWeeklyFieldsFromBaseTimetable(snapshot.baseTimetable ?? baseTimetable));
+    setWeekLessonOverlays(snapshot.weekLessonOverlays ?? weekLessonOverlays);
+    setCelebrations(normalizeCelebrations(snapshot.celebrations ?? []));
+    setBellReminderSettings(normalizeBellReminderSettings(snapshot.bellReminderSettings ?? defaultBellReminderSettings()));
+    setToolShortcuts(normalizeToolShortcuts(snapshot.toolShortcuts ?? []));
+    setDayCountdownTarget(normalizeDayCountdownTarget(snapshot.dayCountdownTarget ?? dayCountdownTarget));
+    setDayCountdownEventLabel(normalizeDayCountdownEventLabel(snapshot.dayCountdownEventLabel ?? dayCountdownEventLabel));
+    setUnitStore(snapshot.unitStore && typeof snapshot.unitStore === "object" ? snapshot.unitStore : { byClass: {} });
+    window.setTimeout(() => {
+      suppressHistoryCaptureRef.current = false;
+    }, 0);
+  }, [baseTimetable, dayCountdownEventLabel, dayCountdownTarget, week1StartDate, weekLessonOverlays]);
+
+  const handleUndo = useCallback(() => {
+    if (historyPastRef.current.length === 0) return;
+    const current = buildUndoSnapshot();
+    const previous = historyPastRef.current.pop();
+    historyFutureRef.current.push(current);
+    lastHistorySnapshotRef.current = previous;
+    applyUndoSnapshot(previous);
+    syncUndoRedoFlags();
+  }, [applyUndoSnapshot, buildUndoSnapshot, syncUndoRedoFlags]);
+
+  const handleRedo = useCallback(() => {
+    if (historyFutureRef.current.length === 0) return;
+    const current = buildUndoSnapshot();
+    const next = historyFutureRef.current.pop();
+    historyPastRef.current.push(current);
+    lastHistorySnapshotRef.current = next;
+    applyUndoSnapshot(next);
+    syncUndoRedoFlags();
+  }, [applyUndoSnapshot, buildUndoSnapshot, syncUndoRedoFlags]);
+
+  useEffect(() => {
+    if (isBootstrappingPersistenceRef.current) return;
+    const snapshot = buildUndoSnapshot();
+    if (!lastHistorySnapshotRef.current) {
+      lastHistorySnapshotRef.current = snapshot;
+      suppressHistoryCaptureRef.current = false;
+      syncUndoRedoFlags();
+      return;
+    }
+    if (suppressHistoryCaptureRef.current) {
+      lastHistorySnapshotRef.current = snapshot;
+      return;
+    }
+    const prevSig = JSON.stringify(lastHistorySnapshotRef.current);
+    const nextSig = JSON.stringify(snapshot);
+    if (prevSig === nextSig) return;
+    historyPastRef.current.push(lastHistorySnapshotRef.current);
+    if (historyPastRef.current.length > 40) {
+      historyPastRef.current = historyPastRef.current.slice(-40);
+    }
+    historyFutureRef.current = [];
+    lastHistorySnapshotRef.current = snapshot;
+    syncUndoRedoFlags();
+  }, [buildUndoSnapshot, syncUndoRedoFlags]);
+
+  useEffect(() => {
+    const onKeyDown = (e) => {
+      const isCmdOrCtrl = e.metaKey || e.ctrlKey;
+      if (!isCmdOrCtrl || e.altKey) return;
+      const key = String(e.key || "").toLowerCase();
+      if (key !== "z") return;
+      e.preventDefault();
+      if (e.shiftKey) handleRedo();
+      else handleUndo();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [handleRedo, handleUndo]);
+
   const formattedTimer = `${String(Math.floor(timerSeconds / 60)).padStart(2, "0")}:${String(timerSeconds % 60).padStart(2, "0")}`;
   const daysUntilTarget = useMemo(
     () => daysBetweenTodayAndIso(dayCountdownTarget),
@@ -5506,6 +5691,34 @@ export default function App() {
     [upcomingItems, normalizedSearch]
   );
 
+  const sidebarSearchStudentNotes = useMemo(() => {
+    if (!normalizedSearch) return [];
+    return studentNotes
+      .filter((n) =>
+        [n.studentName, n.classLabel, n.quickChoice, n.note, n.week, n.day, n.period]
+          .join(" ")
+          .toLowerCase()
+          .includes(normalizedSearch)
+      )
+      .slice(0, 40)
+      .map((n) => ({
+        id: `student-search-${n.id}`,
+        title: `${n.studentName} • ${n.classLabel}`,
+        kind: "student-note",
+        status: "later",
+        dayName: n.day || "",
+        week: n.week || "",
+        period: n.period || "",
+        searchSeed: n.studentName || normalizedSearch,
+        sortValue: Number.isFinite(Date.parse(n.createdAt)) ? Date.parse(n.createdAt) : 0,
+      }));
+  }, [normalizedSearch, studentNotes]);
+
+  const sidebarSearchItems = useMemo(
+    () => (normalizedSearch ? [...filteredUpcomingItems, ...sidebarSearchStudentNotes] : filteredUpcomingItems),
+    [normalizedSearch, filteredUpcomingItems, sidebarSearchStudentNotes]
+  );
+
   useEffect(() => {
     const overdueIds = new Set(
       upcomingItems.filter((item) => item.kind !== "celebration" && item.status === "overdue").map((item) => item.id)
@@ -5523,7 +5736,7 @@ export default function App() {
 
   useLayoutEffect(() => {
     updateSidebarMoreBelow();
-  }, [filteredUpcomingItems, sidebarCollapsed, updateSidebarMoreBelow]);
+  }, [sidebarSearchItems, sidebarCollapsed, updateSidebarMoreBelow]);
 
   useEffect(() => {
     if (focusMode) return;
@@ -5584,6 +5797,8 @@ export default function App() {
   }, [timetable, normalizedSearch]);
 
   const timetableForView = normalizedSearch ? filteredTimetable : timetable;
+  const hasAnySearchResults =
+    !normalizedSearch || filteredTimetable.length > 0 || sidebarSearchItems.length > 0;
   const visibleDays =
     viewMode === "week"
       ? timetableForView
@@ -6109,6 +6324,73 @@ export default function App() {
     setDashboardToolsView("menu");
   }
 
+  function snapshotFingerprint(snapshot) {
+    if (!snapshot?.app) return "";
+    try {
+      return JSON.stringify(snapshot.app);
+    } catch {
+      return "";
+    }
+  }
+
+  function markSavedSoon(savedAtIso = new Date().toISOString()) {
+    if (saveStatusTimerRef.current) {
+      clearTimeout(saveStatusTimerRef.current);
+      saveStatusTimerRef.current = null;
+    }
+    saveStatusTimerRef.current = window.setTimeout(() => {
+      setSaveStatus("saved");
+      setLastSavedAt(savedAtIso);
+    }, 260);
+  }
+
+  function queueIndexedDbSave(snapshotWithSavedAt) {
+    pendingSnapshotRef.current = snapshotWithSavedAt;
+    if (pendingIndexedDbTimerRef.current) {
+      clearTimeout(pendingIndexedDbTimerRef.current);
+      pendingIndexedDbTimerRef.current = null;
+    }
+    pendingIndexedDbTimerRef.current = window.setTimeout(async () => {
+      pendingIndexedDbTimerRef.current = null;
+      const snap = pendingSnapshotRef.current;
+      if (!snap) return;
+      try {
+        await saveTeacherStudioCurrentSnapshot(snap);
+        markSavedSoon(snap.savedAt ?? new Date().toISOString());
+      } catch {
+        setSaveStatus("error");
+      }
+    }, 800);
+  }
+
+  async function flushPendingSnapshotNow() {
+    const snap = pendingSnapshotRef.current ?? latestSnapshotRef.current;
+    if (!snap) return;
+    if (pendingIndexedDbTimerRef.current) {
+      clearTimeout(pendingIndexedDbTimerRef.current);
+      pendingIndexedDbTimerRef.current = null;
+    }
+    try {
+      await saveTeacherStudioCurrentSnapshot(snap);
+      markSavedSoon(snap.savedAt ?? new Date().toISOString());
+    } catch {
+      setSaveStatus("error");
+    }
+  }
+
+  async function maybeCreateRollingBackup(reason) {
+    const snap = latestSnapshotRef.current;
+    if (!snap || !hasUnbackedChangesRef.current) return;
+    try {
+      await saveTeacherStudioRollingBackup(snap, reason);
+      await maybePruneTeacherStudioRollingBackups(10);
+      hasUnbackedChangesRef.current = false;
+      lastBackedUpFingerprintRef.current = snapshotFingerprint(snap);
+    } catch {
+      /* best-effort only */
+    }
+  }
+
   useEffect(() => {
     try {
       if (typeof window !== "undefined" && sessionStorage.getItem("teacher-studio-new-term-ready")) {
@@ -6156,13 +6438,31 @@ export default function App() {
     try {
       window.localStorage.setItem(TEACHER_STUDIO_STORAGE_KEY, JSON.stringify(payload));
       window.localStorage.setItem(TEACHER_STUDIO_FONT_STORAGE_KEY, String(fontScale));
-      saveStatusTimerRef.current = window.setTimeout(() => {
-        setSaveStatus("saved");
-      }, 260);
     } catch {
       setSaveStatus("error");
       /* quota / private mode */
+      return;
     }
+    const baseSnapshot = buildTeacherStudioArchiveSnapshot();
+    if (!baseSnapshot?.app) {
+      markSavedSoon();
+      return;
+    }
+    const snapshotWithSavedAt = {
+      ...baseSnapshot,
+      savedAt: new Date().toISOString(),
+    };
+    latestSnapshotRef.current = snapshotWithSavedAt;
+    pendingSnapshotRef.current = snapshotWithSavedAt;
+    const fingerprint = snapshotFingerprint(snapshotWithSavedAt);
+    if (fingerprint && fingerprint !== lastBackedUpFingerprintRef.current) {
+      hasUnbackedChangesRef.current = true;
+    }
+    if (isBootstrappingPersistenceRef.current) {
+      markSavedSoon();
+      return;
+    }
+    queueIndexedDbSave(snapshotWithSavedAt);
   }, [
     sidebarCollapsed,
     focusMode,
@@ -6194,9 +6494,143 @@ export default function App() {
     todayStickies,
   ]);
 
+  useEffect(() => {
+    let cancelled = false;
+    const bootstrap = async () => {
+      const currentLocalSnapshot = buildTeacherStudioArchiveSnapshot();
+      const previousSessionState = readTeacherStudioSessionState();
+      const hadUncleanLastSession = Boolean(previousSessionState?.open);
+      try {
+        const idbSnapshot = await loadTeacherStudioCurrentSnapshot();
+        if (idbSnapshot?.app && appPayloadLooksLikeTeacherStudio(idbSnapshot.app)) {
+          const idbFp = snapshotFingerprint(idbSnapshot);
+          const localFp = snapshotFingerprint(currentLocalSnapshot);
+          if (idbFp && idbFp !== localFp) {
+            const alreadyRehydrated = sessionStorage.getItem(TEACHER_STUDIO_IDB_REHYDRATED_FLAG) === "1";
+            if (!alreadyRehydrated) {
+              sessionStorage.setItem(TEACHER_STUDIO_IDB_REHYDRATED_FLAG, "1");
+              writeTeacherStudioSnapshotToLocalStorage(idbSnapshot);
+              window.location.reload();
+              return;
+            }
+          } else {
+            sessionStorage.removeItem(TEACHER_STUDIO_IDB_REHYDRATED_FLAG);
+          }
+          latestSnapshotRef.current = {
+            ...idbSnapshot,
+            savedAt: idbSnapshot.savedAt ?? new Date().toISOString(),
+          };
+        } else if (currentLocalSnapshot?.app) {
+          const migrated = await migrateTeacherStudioLocalStorageToIndexedDbIfNeeded(currentLocalSnapshot);
+          if (migrated?.snapshot) {
+            latestSnapshotRef.current = migrated.snapshot;
+          } else {
+            latestSnapshotRef.current = {
+              ...currentLocalSnapshot,
+              savedAt: currentLocalSnapshot.savedAt ?? new Date().toISOString(),
+            };
+          }
+        }
+      } catch {
+        latestSnapshotRef.current = currentLocalSnapshot
+          ? { ...currentLocalSnapshot, savedAt: currentLocalSnapshot.savedAt ?? new Date().toISOString() }
+          : null;
+      } finally {
+        if (cancelled) return;
+        isBootstrappingPersistenceRef.current = false;
+      }
+      if (cancelled) return;
+      if (latestSnapshotRef.current?.app) {
+        try {
+          await saveTeacherStudioRollingBackup(latestSnapshotRef.current, "startup");
+          await maybePruneTeacherStudioRollingBackups(10);
+          lastBackedUpFingerprintRef.current = snapshotFingerprint(latestSnapshotRef.current);
+          hasUnbackedChangesRef.current = false;
+        } catch {
+          /* best-effort only */
+        }
+        setLastSavedAt(latestSnapshotRef.current.savedAt ?? new Date().toISOString());
+      }
+      if (!cancelled && hadUncleanLastSession) {
+        try {
+          const backups = await listTeacherStudioRollingBackups();
+          const candidate = backups.find((b) => b?.snapshot?.app && appPayloadLooksLikeTeacherStudio(b.snapshot.app));
+          if (candidate?.snapshot) {
+            const currentFp = snapshotFingerprint(buildTeacherStudioArchiveSnapshot());
+            const candidateFp = snapshotFingerprint(candidate.snapshot);
+            if (!candidateFp || candidateFp !== currentFp) {
+              setCrashRecoveryPrompt(candidate);
+            }
+          }
+        } catch {
+          /* ignore prompt if listing fails */
+        }
+      }
+    };
+    bootstrap();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      void maybeCreateRollingBackup("interval-10m");
+    }, 10 * 60 * 1000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    const flushAndBackup = () => {
+      void flushPendingSnapshotNow();
+      void maybeCreateRollingBackup("pagehide");
+    };
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "hidden") flushAndBackup();
+    };
+    window.addEventListener("pagehide", flushAndBackup);
+    window.addEventListener("beforeunload", flushAndBackup);
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => {
+      window.removeEventListener("pagehide", flushAndBackup);
+      window.removeEventListener("beforeunload", flushAndBackup);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+    };
+  }, []);
+
+  useEffect(() => {
+    writeTeacherStudioSessionState({
+      open: true,
+      lastOpenedAt: new Date().toISOString(),
+      cleanClose: false,
+    });
+    const heartbeat = window.setInterval(() => {
+      writeTeacherStudioSessionState({
+        open: true,
+        lastHeartbeatAt: new Date().toISOString(),
+      });
+    }, 15000);
+    const markClosed = () => {
+      writeTeacherStudioSessionState({
+        open: false,
+        cleanClose: true,
+        lastClosedAt: new Date().toISOString(),
+      });
+    };
+    window.addEventListener("pagehide", markClosed);
+    window.addEventListener("beforeunload", markClosed);
+    return () => {
+      window.clearInterval(heartbeat);
+      window.removeEventListener("pagehide", markClosed);
+      window.removeEventListener("beforeunload", markClosed);
+      markClosed();
+    };
+  }, []);
+
   useEffect(
     () => () => {
       if (saveStatusTimerRef.current) clearTimeout(saveStatusTimerRef.current);
+      if (pendingIndexedDbTimerRef.current) clearTimeout(pendingIndexedDbTimerRef.current);
     },
     []
   );
@@ -6773,14 +7207,14 @@ export default function App() {
       week: selectedWeek,
     });
     setStudentNoteStudentDraft("");
-    setStudentNoteQuickChoiceDraft("");
+    setStudentNoteQuickChoiceDraft([]);
     setStudentNoteTextDraft("");
   }
 
   function closeStudentNoteEntryDialog() {
     setStudentNoteEntryDialog(null);
     setStudentNoteStudentDraft("");
-    setStudentNoteQuickChoiceDraft("");
+    setStudentNoteQuickChoiceDraft([]);
     setStudentNoteTextDraft("");
   }
 
@@ -6788,12 +7222,15 @@ export default function App() {
     if (!studentNoteEntryDialog) return;
     const studentName = studentNoteStudentDraft.trim().slice(0, 120);
     const note = studentNoteTextDraft.trim().slice(0, 4000);
-    if (!studentName || !note) return;
+    const quickChoice = Array.isArray(studentNoteQuickChoiceDraft)
+      ? studentNoteQuickChoiceDraft.join(" | ").slice(0, 240)
+      : "";
+    if (!studentName || (!note && !quickChoice)) return;
     const entry = {
       id: `sn-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
       studentName,
       classLabel: studentNoteEntryDialog.classLabel,
-      quickChoice: studentNoteQuickChoiceDraft,
+      quickChoice,
       note,
       createdAt: new Date().toISOString(),
       week: studentNoteEntryDialog.week,
@@ -6810,6 +7247,13 @@ export default function App() {
     setStudentNotesSearch("");
     setStudentNotesViewerScope("individual");
     setStudentNotesClassFilter("");
+  }
+
+  function openStudentNotesFromSearch(seed = "") {
+    setStudentNotesViewerOpen(true);
+    setStudentNotesViewerScope("all");
+    setStudentNotesClassFilter("");
+    setStudentNotesSearch(String(seed || "").trim());
   }
 
   function openWeekDatesFromUtilities() {
@@ -7165,9 +7609,21 @@ export default function App() {
     setTeacherStudioArchives(next);
   }
 
-  function applyTeacherStudioArchiveSnapshot(snapshot) {
+  async function applyTeacherStudioArchiveSnapshot(snapshot) {
     if (typeof window === "undefined") return;
     try {
+      const beforeRestore = buildTeacherStudioArchiveSnapshot();
+      if (beforeRestore?.app) {
+        try {
+          await saveTeacherStudioRollingBackup(
+            { ...beforeRestore, savedAt: new Date().toISOString() },
+            "before-archive-restore"
+          );
+          await maybePruneTeacherStudioRollingBackups(10);
+        } catch {
+          /* best-effort only */
+        }
+      }
       writeTeacherStudioSnapshotToLocalStorage(snapshot);
       window.location.reload();
     } catch (e) {
@@ -7242,15 +7698,60 @@ export default function App() {
     reader.readAsText(file);
   }
 
-  function confirmUtilityImportReplace() {
+  async function confirmUtilityImportReplace() {
     const snap = utilityImportReplaceConfirm;
     if (!snap) return;
     try {
+      const beforeImport = buildTeacherStudioArchiveSnapshot();
+      if (beforeImport?.app) {
+        try {
+          await saveTeacherStudioRollingBackup(
+            { ...beforeImport, savedAt: new Date().toISOString() },
+            "before-import-restore"
+          );
+          await maybePruneTeacherStudioRollingBackups(10);
+        } catch {
+          /* best-effort only */
+        }
+      }
       writeTeacherStudioSnapshotToLocalStorage(snap);
       window.location.reload();
     } catch (e) {
       window.alert(e?.message ? String(e.message) : "Import failed.");
       setUtilityImportReplaceConfirm(null);
+    }
+  }
+
+  function dismissCrashRecoveryPrompt() {
+    setCrashRecoveryPrompt(null);
+  }
+
+  async function restoreCrashRecoverySnapshot() {
+    const candidate = crashRecoveryPrompt?.snapshot;
+    if (!candidate?.app) {
+      setCrashRecoveryPrompt(null);
+      return;
+    }
+    try {
+      const current = buildTeacherStudioArchiveSnapshot();
+      if (current?.app) {
+        try {
+          await saveTeacherStudioRollingBackup(
+            { ...current, savedAt: new Date().toISOString() },
+            "before-crash-recovery-restore"
+          );
+          await maybePruneTeacherStudioRollingBackups(10);
+        } catch {
+          /* best-effort only */
+        }
+      }
+      await restoreTeacherStudioRollingBackup(candidate);
+      writeTeacherStudioSnapshotToLocalStorage(candidate);
+      setCrashRecoveryPrompt(null);
+      window.location.reload();
+    } catch (e) {
+      window.alert(e?.message ? String(e.message) : "Could not restore last session.");
+      setCrashRecoveryPrompt(null);
     }
   }
 
@@ -7620,9 +8121,23 @@ export default function App() {
                     placeholder={sidebarCollapsed ? "" : "Search lessons, rooms, reminders"}
                     className={cn(
                       "w-full rounded-full border border-slate-700 bg-slate-800 py-2.5 text-sm outline-none ring-0 transition focus:border-slate-300",
-                      sidebarCollapsed ? "px-3" : "pl-9 pr-4 text-white"
+                      sidebarCollapsed ? "px-3" : "pl-9 pr-10 text-white"
                     )}
                   />
+                  {!sidebarCollapsed && searchQuery.trim() ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSearchQuery("");
+                        sidebarSearchInputRef.current?.focus();
+                      }}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 rounded-full p-1 text-slate-400 transition hover:bg-slate-700 hover:text-slate-100"
+                      aria-label="Clear search"
+                      title="Clear search"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  ) : null}
                 </div>
               </div>
 
@@ -7666,10 +8181,13 @@ export default function App() {
                   )}
 
                   <div className="space-y-1 pb-4 pr-0.5">
-                  {filteredUpcomingItems.map((item) => {
+                  {sidebarSearchItems.map((item) => {
+                    const isStudentNoteResult = item.kind === "student-note";
                     const tone =
                       item.kind === "celebration"
                         ? CELEBRATION_LIST_TONE
+                        : isStudentNoteResult
+                          ? STUDENT_NOTE_SEARCH_TONE
                         : getCalendarEventTone(item.status, item.kind);
                     const showOverdueBadge =
                       item.kind !== "celebration" &&
@@ -7718,7 +8236,9 @@ export default function App() {
                               onClick={
                                 item.kind === "celebration"
                                   ? undefined
-                                  : () => openCalendarReminder(item.date, item)
+                                  : isStudentNoteResult
+                                    ? () => openStudentNotesFromSearch(item.searchSeed)
+                                    : () => openCalendarReminder(item.date, item)
                               }
                               className={cn(
                                 "min-w-0 flex-1",
@@ -7729,7 +8249,11 @@ export default function App() {
                                 <>
                                   <div className="mb-1.5 flex items-center gap-1.5">
                                     <span className={cn("inline-flex rounded-full border px-2 py-0.5 text-[9px] font-bold uppercase tracking-[0.14em] shadow-sm", tone.chip)}>
-                                      {item.kind === "celebration" ? "Celebration" : item.kind}
+                                      {item.kind === "celebration"
+                                        ? "Celebration"
+                                        : isStudentNoteResult
+                                          ? "Student note"
+                                          : item.kind}
                                     </span>
                                     {showOverdueBadge ? (
                                       <button
@@ -7754,11 +8278,17 @@ export default function App() {
                                       </button>
                                     ) : null}
                                     <span className={cn("text-[10px] font-medium", tone.text)}>
-                                      {item.dayName} {item.date}{" "}
-                                      {new Date(item.year, item.month, 1).toLocaleDateString("en-AU", { month: "short" })}
-                                      {item.kind === "celebration" && item.celebrationYearly ? (
-                                        <span className="text-purple-200/90"> · yearly</span>
-                                      ) : null}
+                                      {isStudentNoteResult
+                                        ? [item.week, item.dayName, item.period].filter(Boolean).join(" · ") || "Student notes"
+                                        : (
+                                            <>
+                                              {item.dayName} {item.date}{" "}
+                                              {new Date(item.year, item.month, 1).toLocaleDateString("en-AU", { month: "short" })}
+                                              {item.kind === "celebration" && item.celebrationYearly ? (
+                                                <span className="text-purple-200/90"> · yearly</span>
+                                              ) : null}
+                                            </>
+                                          )}
                                     </span>
                                   </div>
                                   <p className="truncate text-sm font-bold text-white">{item.title}</p>
@@ -7768,7 +8298,7 @@ export default function App() {
                               )}
                             </div>
 
-                            {!sidebarCollapsed && (
+                            {!sidebarCollapsed && !isStudentNoteResult && (
                               <div className="flex items-center gap-2">
                                 <button
                                   onClick={() => setDeleteId(item.id)}
@@ -7886,6 +8416,7 @@ export default function App() {
             editingDayCountdown={editingDayCountdown}
             setDayCountdownDraft={setDayCountdownDraft}
             dayCountdownDraft={dayCountdownDraft}
+            dayCountdownTarget={dayCountdownTarget}
             setDayCountdownTarget={setDayCountdownTarget}
             normalizeDayCountdownTarget={normalizeDayCountdownTarget}
             setEditingDayCountdown={setEditingDayCountdown}
@@ -7917,6 +8448,11 @@ export default function App() {
             fontScaleStep={FONT_SCALE_STEP}
             fontScale={fontScale}
             saveStatus={saveStatus}
+            lastSavedAt={lastSavedAt}
+            canUndo={canUndo}
+            canRedo={canRedo}
+            onUndo={handleUndo}
+            onRedo={handleRedo}
             utilitiesBtnRef={utilitiesBtnRef}
             toggleUtilitiesMenu={toggleUtilitiesMenu}
             utilitiesMenuOpen={utilitiesMenuOpen}
@@ -7934,11 +8470,14 @@ export default function App() {
             monthViewDayNotes={monthViewDayNotes}
             onMonthViewDayNoteCommit={handleMonthViewDayNoteCommit}
             normalizedSearch={normalizedSearch}
+            hasAnySearchResults={hasAnySearchResults}
             filteredTimetable={filteredTimetable}
             timetable={timetable}
             selectedDay={selectedDay}
             setSelectedDay={setSelectedDay}
             handleAddLesson={handleAddLesson}
+            onOpenUnitOutliner={() => setUnitPlannerOpen(true)}
+            onOpenStudentNotes={openStudentNotesFromUtilities}
             handleExpandAll={handleExpandAll}
             visibleDays={visibleDays}
             searchQuery={searchQuery}
@@ -8324,12 +8863,20 @@ export default function App() {
                     <p className="mb-1 text-[10px] font-semibold text-slate-500">Quick choice</p>
                     <div className="flex flex-wrap gap-1.5">
                       {STUDENT_NOTE_QUICK_CHOICES.map((choice) => {
-                        const active = studentNoteQuickChoiceDraft === choice;
+                        const active = Array.isArray(studentNoteQuickChoiceDraft)
+                          ? studentNoteQuickChoiceDraft.includes(choice)
+                          : false;
                         return (
                           <button
                             key={choice}
                             type="button"
-                            onClick={() => setStudentNoteQuickChoiceDraft(active ? "" : choice)}
+                            onClick={() =>
+                              setStudentNoteQuickChoiceDraft((prev) => {
+                                const current = Array.isArray(prev) ? prev : [];
+                                if (current.includes(choice)) return current.filter((item) => item !== choice);
+                                return [...current, choice];
+                              })
+                            }
                             className={cn(
                               "rounded-full border px-2 py-1 text-[10px] font-medium transition",
                               active
@@ -8361,7 +8908,12 @@ export default function App() {
                     </button>
                     <button
                       type="button"
-                      disabled={!studentNoteStudentDraft.trim() || !studentNoteTextDraft.trim()}
+                      disabled={
+                        !studentNoteStudentDraft.trim() ||
+                        (!studentNoteTextDraft.trim() &&
+                          (!Array.isArray(studentNoteQuickChoiceDraft) ||
+                            studentNoteQuickChoiceDraft.length === 0))
+                      }
                       onClick={saveStudentNoteEntry}
                       className="rounded-md bg-slate-900 px-3 py-1.5 text-[11px] font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-40"
                     >
@@ -9396,6 +9948,35 @@ export default function App() {
             >
               + Duty time
             </button>
+          </div>,
+          document.body
+        )}
+      {typeof document !== "undefined" &&
+        crashRecoveryPrompt &&
+        createPortal(
+          <div className="fixed inset-0 z-[209] flex items-center justify-center bg-slate-900/35 p-4">
+            <div className="w-full max-w-md rounded-xl border border-slate-200 bg-white p-4 shadow-2xl">
+              <p className="text-base font-semibold text-slate-900">Restore last session?</p>
+              <p className="mt-1 text-sm text-slate-600">
+                We found recent work from your last session.
+              </p>
+              <div className="mt-4 flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={dismissCrashRecoveryPrompt}
+                  className="rounded-full border border-slate-300 bg-white px-3.5 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50"
+                >
+                  Dismiss
+                </button>
+                <button
+                  type="button"
+                  onClick={restoreCrashRecoverySnapshot}
+                  className="rounded-full border border-slate-800 bg-slate-900 px-3.5 py-1.5 text-xs font-semibold text-white transition hover:bg-slate-800"
+                >
+                  Restore
+                </button>
+              </div>
+            </div>
           </div>,
           document.body
         )}
