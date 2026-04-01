@@ -578,11 +578,11 @@ export function TimetableStudioPanel({
 
       <div className="relative z-10 flex min-h-[calc(100vh-2rem)] flex-col px-4 pb-0 pt-4 md:h-full md:min-h-0 lg:px-6 lg:pb-0 lg:pt-6">
         <div className="mb-3 flex w-full flex-col gap-2">
-          <div className="relative flex w-full flex-col items-center gap-1 xl:min-h-[3.35rem] xl:items-stretch">
-            <h2 className="pointer-events-none text-center text-2xl font-semibold tracking-tight text-slate-900 lg:text-3xl xl:absolute xl:left-1/2 xl:top-0 xl:-translate-x-1/2">
+          <div className="relative flex w-full flex-col items-start gap-1 xl:min-h-[3.35rem] xl:items-stretch">
+            <h2 className="pointer-events-none text-left text-2xl font-semibold tracking-tight text-slate-900 lg:text-3xl xl:absolute xl:left-0 xl:top-0">
               Teaching Studio
             </h2>
-            <p className="pointer-events-none max-w-[min(96vw,44rem)] text-center text-[11px] font-medium text-slate-500 sm:max-w-[min(82vw,44rem)] xl:absolute xl:left-1/2 xl:top-[2rem] xl:max-w-[min(52vw,40rem)] xl:-translate-x-1/2 xl:truncate">
+            <p className="pointer-events-none max-w-[min(96vw,44rem)] text-left text-[11px] font-medium text-slate-500 sm:max-w-[min(82vw,44rem)] xl:absolute xl:left-0 xl:top-[2rem] xl:max-w-[min(52vw,40rem)] xl:truncate">
               Student essay quote: "{weeklyEssayQuote}"
             </p>
             {!focusMode && (

@@ -969,7 +969,7 @@ function UnitPlannerPanel({ open, onClose, classOptions, onSave }) {
         aria-hidden
       />
       <div
-        className="fixed left-1/2 top-6 z-[71] flex max-h-[min(88vh,32rem)] w-[min(100%-1.25rem,22rem)] -translate-x-1/2 flex-col overflow-hidden rounded-2xl border border-slate-200/90 bg-white shadow-[0_20px_50px_-12px_rgba(15,23,42,0.25)] sm:left-auto sm:right-5 sm:translate-x-0"
+        className="fixed left-1/2 top-6 z-[71] flex max-h-[min(88vh,32rem)] w-[min(100%-1.25rem,22rem)] -translate-x-1/2 flex-col overflow-hidden rounded-2xl border border-slate-200/90 bg-white shadow-[0_20px_50px_-12px_rgba(15,23,42,0.25)]"
         role="dialog"
         aria-labelledby="unit-planner-title"
         onClick={(e) => e.stopPropagation()}
@@ -1319,7 +1319,7 @@ function AddLessonPanel({ draft, setDraft, timetable, unitStore, onClose, onSubm
         aria-hidden
       />
       <div
-        className="fixed left-1/2 top-6 z-[71] flex max-h-[min(92vh,42rem)] w-[min(100%-1.25rem,26rem)] -translate-x-1/2 flex-col overflow-hidden rounded-2xl border border-slate-200/90 bg-white shadow-[0_20px_50px_-12px_rgba(15,23,42,0.25)] sm:left-auto sm:right-5 sm:translate-x-0 md:w-[min(100%-2rem,36rem)]"
+        className="fixed left-1/2 top-6 z-[71] flex max-h-[min(92vh,42rem)] w-[min(100%-1.25rem,26rem)] -translate-x-1/2 flex-col overflow-hidden rounded-2xl border border-slate-200/90 bg-white shadow-[0_20px_50px_-12px_rgba(15,23,42,0.25)] md:w-[min(100%-2rem,36rem)]"
         role="dialog"
         aria-labelledby="add-lesson-title"
         onClick={(e) => e.stopPropagation()}
