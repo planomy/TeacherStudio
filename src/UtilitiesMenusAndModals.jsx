@@ -13,10 +13,7 @@ export function UtilitiesMenusAndModals({
   closeUtilitiesMenu,
   openDuplicateWeekFromUtilities,
   openNewWeekSubmenuFromUtilities,
-  onOpenUnitPlannerFromUtilities,
-  onOpenViewUnitsFromUtilities,
   onOpenWeekDatesFromUtilities,
-  onOpenStudentNotesFromUtilities,
   onOpenLessonExportFromUtilities,
   handleUtilityExportFile,
   openUtilityImportModal,
@@ -93,6 +90,14 @@ export function UtilitiesMenusAndModals({
             type="button"
             role="menuitem"
             className="flex w-full px-3 py-2 text-left text-[12.5px] font-medium text-slate-800 transition hover:bg-slate-50"
+            onClick={openStartNewTermFromUtilities}
+          >
+            Start New Term…
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            className="flex w-full px-3 py-2 text-left text-[12.5px] font-medium text-slate-800 transition hover:bg-slate-50"
             onClick={() => {
               openDuplicateWeekFromUtilities();
             }}
@@ -111,22 +116,6 @@ export function UtilitiesMenusAndModals({
             type="button"
             role="menuitem"
             className="flex w-full px-3 py-2 text-left text-[12.5px] font-medium text-slate-800 transition hover:bg-slate-50"
-            onClick={onOpenUnitPlannerFromUtilities}
-          >
-            Unit Outliner
-          </button>
-          <button
-            type="button"
-            role="menuitem"
-            className="flex w-full px-3 py-2 text-left text-[12.5px] font-medium text-slate-800 transition hover:bg-slate-50"
-            onClick={onOpenViewUnitsFromUtilities}
-          >
-            View Units
-          </button>
-          <button
-            type="button"
-            role="menuitem"
-            className="flex w-full px-3 py-2 text-left text-[12.5px] font-medium text-slate-800 transition hover:bg-slate-50"
             onClick={onOpenWeekDatesFromUtilities}
           >
             Lock Week Dates
@@ -135,25 +124,9 @@ export function UtilitiesMenusAndModals({
             type="button"
             role="menuitem"
             className="flex w-full px-3 py-2 text-left text-[12.5px] font-medium text-slate-800 transition hover:bg-slate-50"
-            onClick={onOpenStudentNotesFromUtilities}
-          >
-            See Student Notes
-          </button>
-          <button
-            type="button"
-            role="menuitem"
-            className="flex w-full px-3 py-2 text-left text-[12.5px] font-medium text-slate-800 transition hover:bg-slate-50"
             onClick={onOpenLessonExportFromUtilities}
           >
             Share / Export Lessons
-          </button>
-          <button
-            type="button"
-            role="menuitem"
-            className="flex w-full px-3 py-2 text-left text-[12.5px] font-medium text-slate-800 transition hover:bg-slate-50"
-            onClick={openStartNewTermFromUtilities}
-          >
-            Start New Term…
           </button>
           <div className="my-1 border-t border-slate-200" role="separator" />
           <div className="px-3 pb-0.5 pt-1">

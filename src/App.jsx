@@ -8916,6 +8916,7 @@ export default function App() {
             setSelectedDay={setSelectedDay}
             handleAddLesson={handleAddLesson}
             onOpenUnitOutliner={() => setUnitPlannerOpen(true)}
+            onOpenViewUnits={() => setViewUnitsOpen(true)}
             onOpenStudentNotes={openStudentNotesFromUtilities}
             onOpenStudentLists={() => setStudentListsOpen(true)}
             handleExpandAll={handleExpandAll}
@@ -9018,16 +9019,7 @@ export default function App() {
             closeUtilitiesMenu={closeUtilitiesMenu}
             openDuplicateWeekFromUtilities={openDuplicateWeekFromUtilities}
             openNewWeekSubmenuFromUtilities={openNewWeekSubmenuFromUtilities}
-            onOpenUnitPlannerFromUtilities={() => {
-              setUnitPlannerOpen(true);
-              closeUtilitiesMenu();
-            }}
-            onOpenViewUnitsFromUtilities={() => {
-              setViewUnitsOpen(true);
-              closeUtilitiesMenu();
-            }}
             onOpenWeekDatesFromUtilities={openWeekDatesFromUtilities}
-            onOpenStudentNotesFromUtilities={openStudentNotesFromUtilities}
             onOpenLessonExportFromUtilities={openLessonExportFromUtilities}
             handleUtilityExportFile={handleUtilityExportFile}
             openUtilityImportModal={openUtilityImportModal}

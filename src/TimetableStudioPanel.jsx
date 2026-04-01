@@ -379,6 +379,7 @@ export function TimetableStudioPanel({
   setSelectedDay,
   handleAddLesson,
   onOpenUnitOutliner,
+  onOpenViewUnits,
   onOpenStudentNotes,
   onOpenStudentLists,
   handleExpandAll,
@@ -1376,6 +1377,13 @@ export function TimetableStudioPanel({
               className="rounded-full border border-slate-300 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-slate-800 shadow-sm transition hover:bg-slate-50 sm:px-3 sm:py-2 sm:text-xs"
             >
               Unit Outliner
+            </button>
+            <button
+              type="button"
+              onClick={onOpenViewUnits}
+              className="rounded-full border border-slate-300 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-slate-800 shadow-sm transition hover:bg-slate-50 sm:px-3 sm:py-2 sm:text-xs"
+            >
+              View Units
             </button>
             <button
               type="button"
