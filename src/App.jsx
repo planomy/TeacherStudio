@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useSta
 import { createPortal } from "react-dom";
 import { TimetableStudioPanel } from "./TimetableStudioPanel.jsx";
 import { UtilitiesMenusAndModals } from "./UtilitiesMenusAndModals.jsx";
+import { StudentListsPanel } from "./StudentListsPanel.jsx";
 import { cn } from "./utils/cn.js";
 import { LinkifiedText, textContainsHttpUrl } from "./utils/LinkifiedText.jsx";
 import {
@@ -258,13 +259,8 @@ const sidebarItems = [
   { icon: CalendarDays, label: "Calendar" },
 ];
 
-const STUDENT_NOTE_QUICK_CHOICES = [
-  "Behaviour issue",
-  "Distracting others",
-  "Homework incomplete",
-  "Uniform issue",
-  "Off task",
-];
+const BASE_STUDENT_NOTE_QUICK_CHOICES = ["Behaviour", "Effort", "Homework"];
+const MAX_STUDENT_NOTE_CUSTOM_CODES = 3;
 
 const TERM_WEEKS = Array.from({ length: 11 }, (_, i) => `Week ${i + 1}`);
 
@@ -4284,6 +4280,30 @@ function downloadBrowserJsonFile(filename, dataObject) {
   URL.revokeObjectURL(url);
 }
 
+function csvEscape(value) {
+  const text = String(value ?? "");
+  if (!/[",\n]/.test(text)) return text;
+  return `"${text.replaceAll("\"", "\"\"")}"`;
+}
+
+function rowsToCsv(rows) {
+  return rows.map((row) => row.map((cell) => csvEscape(cell)).join(",")).join("\n");
+}
+
+function downloadBrowserCsvFile(filename, rows) {
+  if (typeof window === "undefined") return;
+  const csv = rowsToCsv(rows);
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
 function defaultExpandedDays() {
   return Object.fromEntries(timetableTemplate.map((day) => [day.day, false]));
 }
@@ -4796,6 +4816,125 @@ function normalizeStudentNotes(raw) {
   return out;
 }
 
+function normalizeStudentNoteCustomCodes(raw) {
+  if (!Array.isArray(raw)) return [];
+  const used = new Set();
+  const out = [];
+  for (const item of raw) {
+    const label = String(item ?? "").trim().slice(0, 24);
+    if (!label) continue;
+    const key = label.toLowerCase();
+    if (used.has(key)) continue;
+    used.add(key);
+    out.push(label);
+    if (out.length >= MAX_STUDENT_NOTE_CUSTOM_CODES) break;
+  }
+  return out;
+}
+
+function defaultStudentListEditableColumns() {
+  return [
+    { id: "c1", label: "C1", kind: "editable" },
+    { id: "c2", label: "C2", kind: "editable" },
+    { id: "c3", label: "C3", kind: "editable" },
+    { id: "c4", label: "C4", kind: "editable" },
+  ];
+}
+
+function normalizeStudentListEditableColumns(rawColumns) {
+  const fixedIds = new Set(["studentName", "notes"]);
+  const used = new Set(fixedIds);
+  const out = [];
+  if (Array.isArray(rawColumns)) {
+    for (const col of rawColumns) {
+      if (!col || typeof col !== "object") continue;
+      const rawId = String(col.id ?? "").trim();
+      const isFixed = fixedIds.has(rawId) || col.kind === "name" || col.kind === "notes";
+      if (isFixed) continue;
+      let id = rawId || `col-${out.length + 1}`;
+      id = id.toLowerCase().replace(/[^a-z0-9_-]/g, "-").slice(0, 40) || `col-${out.length + 1}`;
+      if (used.has(id)) id = `col-${out.length + 1}`;
+      used.add(id);
+      const label = String(col.label ?? "").trim().slice(0, 24) || `C${out.length + 1}`;
+      out.push({ id, label, kind: "editable" });
+      if (out.length >= 24) break;
+    }
+  }
+  if (!out.length) return defaultStudentListEditableColumns();
+  const defaults = defaultStudentListEditableColumns();
+  for (const def of defaults) {
+    if (out.length >= 4) break;
+    if (used.has(def.id)) continue;
+    used.add(def.id);
+    out.push({ ...def });
+  }
+  while (out.length < 4) {
+    const id = `c${out.length + 1}`;
+    if (!used.has(id)) {
+      used.add(id);
+      out.push({ id, label: `C${out.length + 1}`, kind: "editable" });
+    } else {
+      const fallbackId = `col-${out.length + 1}`;
+      used.add(fallbackId);
+      out.push({ id: fallbackId, label: `C${out.length + 1}`, kind: "editable" });
+    }
+  }
+  return out.slice(0, 24);
+}
+
+function buildDefaultStudentListRows(editableColumns, count = 30) {
+  const safeCount = Math.max(1, Math.min(300, Number(count) || 30));
+  return Array.from({ length: safeCount }, (_, idx) => ({
+    id: `row-${idx + 1}`,
+    name: "",
+    cells: Object.fromEntries(editableColumns.map((c) => [c.id, ""])),
+  }));
+}
+
+function normalizeStudentListTable(rawTable) {
+  const editableColumns = normalizeStudentListEditableColumns(rawTable?.columns);
+  const rowsIn = Array.isArray(rawTable?.rows) ? rawTable.rows.slice(0, 300) : [];
+  const rows = rowsIn
+    .map((row, idx) => {
+      if (!row || typeof row !== "object") return null;
+      const id = String(row.id ?? "").trim() || `row-${idx + 1}`;
+      const name = String(row.name ?? row.studentName ?? "").slice(0, 120);
+      const rawCells = row.cells && typeof row.cells === "object" ? row.cells : {};
+      const cells = {};
+      for (const col of editableColumns) {
+        const val = rawCells[col.id] ?? row[col.id] ?? "";
+        cells[col.id] = String(val ?? "").slice(0, 40);
+      }
+      return { id, name, cells };
+    })
+    .filter(Boolean);
+  return {
+    columns: [
+      { id: "studentName", label: "Student Name", kind: "name" },
+      { id: "notes", label: "Notes", kind: "notes" },
+      ...editableColumns,
+    ],
+    rows: rows.length ? rows : buildDefaultStudentListRows(editableColumns, 30),
+  };
+}
+
+function normalizeStudentLists(raw) {
+  const byClass = {};
+  const input = raw && typeof raw === "object" && !Array.isArray(raw)
+    ? (raw.byClass && typeof raw.byClass === "object" ? raw.byClass : {})
+    : {};
+  for (const [classLabel, rawTable] of Object.entries(input)) {
+    const label = String(classLabel ?? "").trim().slice(0, 160);
+    if (!label) continue;
+    byClass[label] = normalizeStudentListTable(rawTable);
+  }
+  return { byClass };
+}
+
+function buildDefaultStudentListTable() {
+  return normalizeStudentListTable(null);
+}
+
 function normalizeTodaySticky(raw) {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
   const text = String(raw.text ?? "").slice(0, 4000);
@@ -4845,6 +4984,8 @@ function mergePersistedAppState(raw) {
     bellReminderSettings: defaultBellReminderSettings(),
     monthViewDayNotes: {},
     studentNotes: [],
+    studentNoteCustomCodes: [],
+    studentLists: { byClass: {} },
     todayStickies: [],
     week1StartDate: defaultWeek1StartDate,
   };
@@ -5043,6 +5184,10 @@ function mergePersistedAppState(raw) {
     bellReminderSettings: normalizeBellReminderSettings(raw.bellReminderSettings ?? defaults.bellReminderSettings),
     monthViewDayNotes: normalizeMonthViewDayNotes(raw.monthViewDayNotes ?? defaults.monthViewDayNotes),
     studentNotes: normalizeStudentNotes(raw.studentNotes ?? defaults.studentNotes),
+    studentNoteCustomCodes: normalizeStudentNoteCustomCodes(
+      raw.studentNoteCustomCodes ?? defaults.studentNoteCustomCodes
+    ),
+    studentLists: normalizeStudentLists(raw.studentLists ?? defaults.studentLists),
     todayStickies: normalizeTodayStickies(raw.todayStickies, raw.todaySticky),
   };
 }
@@ -5249,6 +5394,7 @@ export default function App() {
   const [calendarReminders, setCalendarReminders] = useState(initialAppState.calendarReminders);
   const [monthViewDayNotes, setMonthViewDayNotes] = useState(initialAppState.monthViewDayNotes);
   const [studentNotes, setStudentNotes] = useState(initialAppState.studentNotes);
+  const [studentLists, setStudentLists] = useState(initialAppState.studentLists);
   const [todayStickies, setTodayStickies] = useState(initialAppState.todayStickies);
   const [saveStatus, setSaveStatus] = useState("saved");
   const [lastSavedAt, setLastSavedAt] = useState(null);
@@ -5450,8 +5596,12 @@ export default function App() {
   const [studentNoteEntryDialog, setStudentNoteEntryDialog] = useState(null);
   const [studentNoteStudentDraft, setStudentNoteStudentDraft] = useState("");
   const [studentNoteQuickChoiceDraft, setStudentNoteQuickChoiceDraft] = useState([]);
+  const [studentNoteCustomCodes, setStudentNoteCustomCodes] = useState(
+    initialAppState.studentNoteCustomCodes ?? []
+  );
   const [studentNoteTextDraft, setStudentNoteTextDraft] = useState("");
   const [studentNotesViewerOpen, setStudentNotesViewerOpen] = useState(false);
+  const [studentListsOpen, setStudentListsOpen] = useState(false);
   const [studentNotesViewerScope, setStudentNotesViewerScope] = useState("individual");
   const [studentNotesSearch, setStudentNotesSearch] = useState("");
   const [studentNotesClassFilter, setStudentNotesClassFilter] = useState("");
@@ -5526,6 +5676,8 @@ export default function App() {
       calendarReminders,
       monthViewDayNotes,
       studentNotes,
+      studentNoteCustomCodes: normalizeStudentNoteCustomCodes(studentNoteCustomCodes),
+      studentLists: normalizeStudentLists(studentLists),
       todayStickies: normalizeTodayStickies(todayStickies),
       week1StartDate,
       baseTimetable,
@@ -5541,6 +5693,8 @@ export default function App() {
       calendarReminders,
       monthViewDayNotes,
       studentNotes,
+      studentNoteCustomCodes,
+      studentLists,
       todayStickies,
       week1StartDate,
       baseTimetable,
@@ -5565,6 +5719,8 @@ export default function App() {
     setCalendarReminders(snapshot.calendarReminders ?? []);
     setMonthViewDayNotes(normalizeMonthViewDayNotes(snapshot.monthViewDayNotes ?? {}));
     setStudentNotes(normalizeStudentNotes(snapshot.studentNotes ?? []));
+    setStudentNoteCustomCodes(normalizeStudentNoteCustomCodes(snapshot.studentNoteCustomCodes ?? []));
+    setStudentLists(normalizeStudentLists(snapshot.studentLists ?? { byClass: {} }));
     setTodayStickies(normalizeTodayStickies(snapshot.todayStickies));
     setWeek1StartDate(
       parseIsoToLocalDate(snapshot.week1StartDate)
@@ -5865,6 +6021,234 @@ export default function App() {
       return blob.includes(q);
     });
   }, [studentNotes, studentNotesSearch, studentNotesViewerScope, studentNotesClassFilter]);
+  const studentNoteQuickChoices = useMemo(
+    () => [...BASE_STUDENT_NOTE_QUICK_CHOICES, ...normalizeStudentNoteCustomCodes(studentNoteCustomCodes)],
+    [studentNoteCustomCodes]
+  );
+  useEffect(() => {
+    setStudentNoteQuickChoiceDraft((prev) => {
+      const current = Array.isArray(prev) ? prev : [];
+      const allowed = new Set(studentNoteQuickChoices);
+      return current.filter((choice) => allowed.has(choice));
+    });
+  }, [studentNoteQuickChoices]);
+
+  const studentListsClassOptions = useMemo(() => {
+    const fromTimetable = collectTimetableClassLabels(timetable);
+    const fromLists = Object.keys(normalizeStudentLists(studentLists).byClass || {});
+    return [...new Set([...fromTimetable, ...fromLists])].sort((a, b) =>
+      a.localeCompare(b, undefined, { sensitivity: "base" })
+    );
+  }, [timetable, studentLists]);
+
+  function csvFilenamePart(v, fallback = "export") {
+    const clean = String(v ?? "")
+      .trim()
+      .replace(/[^a-z0-9]+/gi, "-")
+      .replace(/^-+|-+$/g, "")
+      .toLowerCase();
+    return clean || fallback;
+  }
+
+  function todayCsvStamp() {
+    const d = new Date();
+    const yyyy = d.getFullYear();
+    const mm = String(d.getMonth() + 1).padStart(2, "0");
+    const dd = String(d.getDate()).padStart(2, "0");
+    return `${yyyy}-${mm}-${dd}`;
+  }
+
+  function studentNotesCountMapForClass(classLabel) {
+    const out = new Map();
+    const key = String(classLabel ?? "").trim().toLowerCase();
+    if (!key) return out;
+    for (const n of studentNotes) {
+      if (String(n.classLabel ?? "").trim().toLowerCase() !== key) continue;
+      const studentKey = String(n.studentName ?? "").trim().toLowerCase();
+      if (!studentKey) continue;
+      out.set(studentKey, (out.get(studentKey) ?? 0) + 1);
+    }
+    return out;
+  }
+
+  function summarizeStudentNotesForStudent(classLabel, studentName) {
+    const classKey = String(classLabel ?? "").trim().toLowerCase();
+    const studentKey = String(studentName ?? "").trim().toLowerCase();
+    const customLabels = normalizeStudentNoteCustomCodes(studentNoteCustomCodes);
+    const customCounts = Object.fromEntries(customLabels.map((label) => [label, 0]));
+    const summary = {
+      behvr: 0,
+      effort: 0,
+      hmwrk: 0,
+      customCounts,
+      teacherNotes: "",
+    };
+    if (!classKey || !studentKey) return summary;
+    const matches = studentNotes.filter(
+      (n) =>
+        String(n.classLabel ?? "").trim().toLowerCase() === classKey &&
+        String(n.studentName ?? "").trim().toLowerCase() === studentKey
+    );
+    if (!matches.length) return summary;
+
+    const noteTexts = [];
+    for (const n of matches) {
+      const pillParts = String(n.quickChoice ?? "")
+        .split("|")
+        .map((p) => p.trim().toLowerCase())
+        .filter(Boolean);
+      if (pillParts.includes("behaviour issue") || pillParts.includes("behaviour")) summary.behvr += 1;
+      if (
+        pillParts.includes("effort") ||
+        pillParts.includes("distracting others") ||
+        pillParts.includes("off task")
+      ) {
+        summary.effort += 1;
+      }
+      if (pillParts.includes("homework incomplete") || pillParts.includes("homework")) summary.hmwrk += 1;
+      for (const label of customLabels) {
+        if (pillParts.includes(label.toLowerCase())) {
+          summary.customCounts[label] = (summary.customCounts[label] ?? 0) + 1;
+        }
+      }
+      const teacherNote = String(n.note ?? "").trim();
+      if (teacherNote) noteTexts.push(teacherNote);
+    }
+    summary.teacherNotes = noteTexts.join(" | ");
+    return summary;
+  }
+
+  function exportStudentListCsvForClass(classLabel) {
+    const includeStudentNotes = window.confirm("Include Student Notes?");
+    const safeLists = normalizeStudentLists(studentLists);
+    const table = safeLists.byClass?.[classLabel];
+    if (!table) {
+      window.alert("No student list table found for this class yet.");
+      return;
+    }
+    const editableCols = (table.columns ?? []).filter(
+      (c) => c.id !== "studentName" && c.id !== "notes"
+    );
+    const customLabels = normalizeStudentNoteCustomCodes(studentNoteCustomCodes);
+    const countCell = (n) => (Number(n) > 0 ? String(n) : "");
+    const notesMap = studentNotesCountMapForClass(classLabel);
+    const rows = [
+      [
+        "Student Name",
+        "Notes",
+        ...editableCols.map((c) => c.label || c.id),
+        ...(includeStudentNotes ? ["Behvr", "Effort", "Hmwrk", ...customLabels, "Teacher Notes"] : []),
+      ],
+      ...table.rows.map((row) => {
+        const studentName = String(row?.name ?? "");
+        const notesCount = notesMap.get(studentName.trim().toLowerCase()) ?? 0;
+        const summary = includeStudentNotes
+          ? summarizeStudentNotesForStudent(classLabel, studentName)
+          : null;
+        return [
+          studentName,
+          countCell(notesCount),
+          ...editableCols.map((c) => String(row?.cells?.[c.id] ?? "")),
+          ...(includeStudentNotes
+            ? [
+                countCell(summary?.behvr),
+                countCell(summary?.effort),
+                countCell(summary?.hmwrk),
+                ...customLabels.map((label) => countCell(summary?.customCounts?.[label])),
+                String(summary?.teacherNotes ?? ""),
+              ]
+            : []),
+        ];
+      }),
+    ];
+    const filename = `student-lists-${csvFilenamePart(classLabel, "class")}-${todayCsvStamp()}.csv`;
+    downloadBrowserCsvFile(filename, rows);
+  }
+
+  function exportAllStudentListsCsv() {
+    const includeStudentNotes = window.confirm("Include Student Notes?");
+    const safeLists = normalizeStudentLists(studentLists);
+    const classLabels = Object.keys(safeLists.byClass || {});
+    if (classLabels.length === 0) {
+      window.alert("No student list tables found yet.");
+      return;
+    }
+    let maxEditable = 0;
+    const customLabels = normalizeStudentNoteCustomCodes(studentNoteCustomCodes);
+    const countCell = (n) => (Number(n) > 0 ? String(n) : "");
+    for (const label of classLabels) {
+      const cols = (safeLists.byClass[label]?.columns ?? []).filter(
+        (c) => c.id !== "studentName" && c.id !== "notes"
+      );
+      if (cols.length > maxEditable) maxEditable = cols.length;
+    }
+    const rows = [[
+      "Class",
+      "Student Name",
+      "Notes",
+      ...Array.from({ length: maxEditable }, (_, i) => `C${i + 1}`),
+      ...(includeStudentNotes ? ["Behvr", "Effort", "Hmwrk", ...customLabels, "Teacher Notes"] : []),
+    ]];
+    for (const label of classLabels) {
+      const table = safeLists.byClass[label];
+      const editableCols = (table.columns ?? []).filter(
+        (c) => c.id !== "studentName" && c.id !== "notes"
+      );
+      const notesMap = studentNotesCountMapForClass(label);
+      for (const row of table.rows) {
+        const studentName = String(row?.name ?? "");
+        const notesCount = notesMap.get(studentName.trim().toLowerCase()) ?? 0;
+        const summary = includeStudentNotes
+          ? summarizeStudentNotesForStudent(label, studentName)
+          : null;
+        const editableValues = editableCols.map((c) => String(row?.cells?.[c.id] ?? ""));
+        rows.push([
+          label,
+          studentName,
+          countCell(notesCount),
+          ...editableValues,
+          ...Array.from({ length: Math.max(0, maxEditable - editableValues.length) }, () => ""),
+          ...(includeStudentNotes
+            ? [
+                countCell(summary?.behvr),
+                countCell(summary?.effort),
+                countCell(summary?.hmwrk),
+                ...customLabels.map((codeLabel) => countCell(summary?.customCounts?.[codeLabel])),
+                String(summary?.teacherNotes ?? ""),
+              ]
+            : []),
+        ]);
+      }
+    }
+    const filename = `student-lists-all-classes-${todayCsvStamp()}.csv`;
+    downloadBrowserCsvFile(filename, rows);
+  }
+
+  function exportStudentNotesCsv(mode = "filtered") {
+    const rowsSource = mode === "all" ? studentNotes : filteredStudentNotes;
+    if (!rowsSource.length) {
+      window.alert(mode === "all" ? "No student notes to export." : "No filtered student notes to export.");
+      return;
+    }
+    const rows = [
+      ["Student Name", "Class", "Quick Choice", "Note", "Week", "Day", "Period", "Created At"],
+      ...rowsSource.map((n) => [
+        n.studentName ?? "",
+        n.classLabel ?? "",
+        n.quickChoice ?? "",
+        n.note ?? "",
+        n.week ?? "",
+        n.day ?? "",
+        n.period ?? "",
+        n.createdAt ?? "",
+      ]),
+    ];
+    const filename =
+      mode === "all"
+        ? `student-notes-all-${todayCsvStamp()}.csv`
+        : `student-notes-filtered-${todayCsvStamp()}.csv`;
+    downloadBrowserCsvFile(filename, rows);
+  }
 
   useEffect(() => {
     setBaseTimetable((prev) =>
@@ -5896,6 +6280,7 @@ export default function App() {
       !dutyTimeApplyPrompt &&
       !slotOverlayLessonId &&
       !unitPlannerOpen &&
+      !studentListsOpen &&
       !viewUnitsOpen
     )
       return;
@@ -5917,6 +6302,10 @@ export default function App() {
         setUnitPlannerOpen(false);
         return;
       }
+      if (studentListsOpen) {
+        setStudentListsOpen(false);
+        return;
+      }
       if (viewUnitsOpen) {
         setViewUnitsOpen(false);
         return;
@@ -5925,7 +6314,7 @@ export default function App() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [addLessonOpen, lessonReplaceConfirm, dutyTimeApplyPrompt, slotOverlayLessonId, unitPlannerOpen, viewUnitsOpen]);
+  }, [addLessonOpen, lessonReplaceConfirm, dutyTimeApplyPrompt, slotOverlayLessonId, unitPlannerOpen, studentListsOpen, viewUnitsOpen]);
 
   useEffect(() => {
     if (!archiveModalOpen && !archiveRestoreConfirm) return;
@@ -6433,6 +6822,8 @@ export default function App() {
       bellReminderSettings: normalizeBellReminderSettings(bellReminderSettings),
       monthViewDayNotes,
       studentNotes,
+      studentNoteCustomCodes: normalizeStudentNoteCustomCodes(studentNoteCustomCodes),
+      studentLists: normalizeStudentLists(studentLists),
       todayStickies: normalizeTodayStickies(todayStickies),
     };
     try {
@@ -6491,6 +6882,8 @@ export default function App() {
     bellReminderSettings,
     monthViewDayNotes,
     studentNotes,
+    studentNoteCustomCodes,
+    studentLists,
     todayStickies,
   ]);
 
@@ -7256,6 +7649,44 @@ export default function App() {
     setStudentNotesSearch(String(seed || "").trim());
   }
 
+  function openStudentNotesForStudent(studentName, classLabel) {
+    setStudentNotesViewerOpen(true);
+    setStudentNotesViewerScope("all");
+    setStudentNotesClassFilter("");
+    setStudentNotesSearch(`${String(studentName ?? "").trim()} ${String(classLabel ?? "").trim()}`.trim());
+  }
+
+  function ensureStudentListForClass(classLabel) {
+    const label = String(classLabel ?? "").trim();
+    if (!label) return;
+    setStudentLists((prev) => {
+      const safe = normalizeStudentLists(prev);
+      if (safe.byClass[label]) return safe;
+      return {
+        byClass: {
+          ...safe.byClass,
+          [label]: buildDefaultStudentListTable(),
+        },
+      };
+    });
+  }
+
+  function updateStudentListForClass(classLabel, updater) {
+    const label = String(classLabel ?? "").trim();
+    if (!label || typeof updater !== "function") return;
+    setStudentLists((prev) => {
+      const safe = normalizeStudentLists(prev);
+      const current = safe.byClass[label] ?? buildDefaultStudentListTable();
+      const nextTable = normalizeStudentListTable(updater(current));
+      return {
+        byClass: {
+          ...safe.byClass,
+          [label]: nextTable,
+        },
+      };
+    });
+  }
+
   function openWeekDatesFromUtilities() {
     closeUtilitiesMenu();
     const selectedMonday = weekDayDateFor(week1StartDate, selectedWeek, "Monday");
@@ -7494,6 +7925,7 @@ export default function App() {
           bellReminderSettings: normalizeBellReminderSettings(fresh.bellReminderSettings),
           monthViewDayNotes: {},
           studentNotes: [],
+          studentLists: { byClass: {} },
           todayStickies: [],
         };
         writeTeacherStudioSnapshotToLocalStorage({
@@ -7524,6 +7956,7 @@ export default function App() {
     setSelectedDay("Monday");
     setCalendarMonth({ year: resetCalendarMonthDate.getFullYear(), month: resetCalendarMonthDate.getMonth() });
     setTodayStickies([]);
+    setStudentLists({ byClass: {} });
     if (startNewTermChoice === "fresh") {
       setUnitStore({ byClass: {} });
       writeUnitPlannerToStorage({ byClass: {} });
@@ -7570,6 +8003,8 @@ export default function App() {
       bellReminderSettings: normalizeBellReminderSettings(bellReminderSettings),
       monthViewDayNotes,
       studentNotes,
+      studentNoteCustomCodes: normalizeStudentNoteCustomCodes(studentNoteCustomCodes),
+      studentLists: normalizeStudentLists(studentLists),
       todayStickies: normalizeTodayStickies(todayStickies),
     };
     const wt = window.localStorage.getItem(WEEK_TEMPLATE_STORAGE_KEY);
@@ -8482,6 +8917,7 @@ export default function App() {
             handleAddLesson={handleAddLesson}
             onOpenUnitOutliner={() => setUnitPlannerOpen(true)}
             onOpenStudentNotes={openStudentNotesFromUtilities}
+            onOpenStudentLists={() => setStudentListsOpen(true)}
             handleExpandAll={handleExpandAll}
             visibleDays={visibleDays}
             searchQuery={searchQuery}
@@ -8547,6 +8983,21 @@ export default function App() {
               onClose={() => setUnitPlannerOpen(false)}
               classOptions={timetableClassLabels}
               onSave={handleSaveUnitPlannerEntry}
+            />
+          ) : null}
+
+          {studentListsOpen ? (
+            <StudentListsPanel
+              open={studentListsOpen}
+              onClose={() => setStudentListsOpen(false)}
+              classLabels={studentListsClassOptions}
+              studentLists={studentLists}
+              onEnsureClassTable={ensureStudentListForClass}
+              onUpdateClassTable={updateStudentListForClass}
+              studentNotes={studentNotes}
+              onOpenStudentNotesForStudent={openStudentNotesForStudent}
+              onExportClassCsv={exportStudentListCsvForClass}
+              onExportAllCsv={exportAllStudentListsCsv}
             />
           ) : null}
 
@@ -8866,7 +9317,7 @@ export default function App() {
                   <div className="mt-2">
                     <p className="mb-1 text-[10px] font-semibold text-slate-500">Quick choice</p>
                     <div className="flex flex-wrap gap-1.5">
-                      {STUDENT_NOTE_QUICK_CHOICES.map((choice) => {
+                      {studentNoteQuickChoices.map((choice) => {
                         const active = Array.isArray(studentNoteQuickChoiceDraft)
                           ? studentNoteQuickChoiceDraft.includes(choice)
                           : false;
@@ -8892,6 +9343,29 @@ export default function App() {
                           </button>
                         );
                       })}
+                    </div>
+                  </div>
+                  <div className="mt-2">
+                    <p className="mb-1 text-[10px] font-semibold text-slate-500">Custom codes (optional)</p>
+                    <div className="grid grid-cols-3 gap-1.5">
+                      {Array.from({ length: MAX_STUDENT_NOTE_CUSTOM_CODES }).map((_, idx) => (
+                        <input
+                          key={`student-note-custom-${idx}`}
+                          type="text"
+                          value={studentNoteCustomCodes[idx] ?? ""}
+                          onChange={(e) =>
+                            setStudentNoteCustomCodes((prev) => {
+                              const next = Array.isArray(prev) ? prev.slice(0, MAX_STUDENT_NOTE_CUSTOM_CODES) : [];
+                              while (next.length < MAX_STUDENT_NOTE_CUSTOM_CODES) next.push("");
+                              next[idx] = String(e.target.value ?? "").slice(0, 24);
+                              return next;
+                            })
+                          }
+                          placeholder={`Code ${idx + 1}`}
+                          maxLength={24}
+                          className="w-full rounded-md border border-slate-200 bg-white px-2 py-1.5 text-[10px] text-slate-800 outline-none placeholder:text-slate-400 focus:border-slate-400"
+                        />
+                      ))}
                     </div>
                   </div>
                   <textarea
@@ -9023,6 +9497,22 @@ export default function App() {
                           ))}
                         </select>
                       ) : null}
+                      <button
+                        type="button"
+                        onClick={() => exportStudentNotesCsv("filtered")}
+                        className="rounded-md border border-slate-200 bg-white px-2 py-1.5 text-[10px] font-semibold text-slate-700 transition hover:bg-slate-50"
+                        title="Export current filtered notes to CSV"
+                      >
+                        Export Filtered CSV
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => exportStudentNotesCsv("all")}
+                        className="rounded-md border border-slate-200 bg-white px-2 py-1.5 text-[10px] font-semibold text-slate-700 transition hover:bg-slate-50"
+                        title="Export all student notes to CSV"
+                      >
+                        Export All CSV
+                      </button>
                     </div>
                   </div>
                   <div className="min-h-0 flex-1 overflow-y-auto px-3 py-2">

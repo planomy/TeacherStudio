@@ -380,6 +380,7 @@ export function TimetableStudioPanel({
   handleAddLesson,
   onOpenUnitOutliner,
   onOpenStudentNotes,
+  onOpenStudentLists,
   handleExpandAll,
   visibleDays,
   searchQuery,
@@ -1382,6 +1383,13 @@ export function TimetableStudioPanel({
               className="rounded-full border border-slate-300 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-slate-800 shadow-sm transition hover:bg-slate-50 sm:px-3 sm:py-2 sm:text-xs"
             >
               Student Notes
+            </button>
+            <button
+              type="button"
+              onClick={onOpenStudentLists}
+              className="rounded-full border border-slate-300 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-slate-800 shadow-sm transition hover:bg-slate-50 sm:px-3 sm:py-2 sm:text-xs"
+            >
+              Student Lists
             </button>
             <button
               type="button"
